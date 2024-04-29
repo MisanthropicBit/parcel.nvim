@@ -27,6 +27,7 @@ function Grid:new(options)
         _rows = {},
         _column_widths = {},
         _line_extmarks = {},
+        _extmarks = {},
         _dirty = false,
     }
     self.__index = self
@@ -38,7 +39,7 @@ function Grid:new(options)
 end
 
 ---@param columns parcel.Column[]
----@param idx integer
+---@param idx integer?
 function Grid:add_row(columns, idx)
     local row = Row:new()
     table.insert(self._rows, idx or #self._rows + 1, row)
@@ -92,6 +93,7 @@ function Grid:set_highlight(lnum, start_col, end_col, column)
         -- to find positions near the cursor later
         if start_col == 0 then
             table.insert(self._line_extmarks, highlight)
+            self._extmarks[highlight.id] = #self._line_extmarks
         end
     end
 end
@@ -101,9 +103,14 @@ function Grid:get_line_extmarks()
     return self._line_extmarks
 end
 
+function Grid:get_row_for_extmark_id(id)
+    return self._extmarks[id]
+end
+
 ---@private
 ---@param id integer
----@return any[]
+---@return integer
+---@return integer
 function Grid:get_extmark_by_id(id)
     return vim.api.nvim_buf_get_extmark_by_id(
         self._buffer,
@@ -198,11 +205,41 @@ function Grid:set_cell(value, row, col)
     -- self._dirty = true
 end
 
-function Grid:render_by_extmark(id)
-    local row, col = self:get_extmark_by_id(id)
-    local rendered_row = (" "):rep(self._indent) .. self._sep .. row:render(self._column_widths)
+---@param row integer
+---@param col integer
+---@return any
+function Grid:get_cell(row, col)
+    return self._rows[row]:column(col).value
+end
 
-    vim.api.nvim_buf_set_lines(self._buffer, row, row, true, rendered_row)
+function Grid:render_by_extmark(id, value, row, col, group)
+    -- local grid_row = self._extmarks[id]
+    -- local rendered_row = self:render_row(self._rows[grid_row])
+    local pos = self:get_extmark_by_id(id)
+    local _row = pos[1]
+    local old_value = self:get_cell(row, col)
+
+    if old_value == nil then
+        return
+    end
+
+    if vim.api.nvim_buf_is_valid(self._buffer) then
+        local bytelen = vim.fn.strlen(old_value)
+        vim.api.nvim_buf_set_text(self._buffer, _row, 0, _row, bytelen, { value })
+
+        vim.api.nvim_buf_set_extmark(
+            self._buffer,
+            config.namespace,
+            _row,
+            0,
+            {
+                hl_group = "WarningMsg",
+                end_col = bytelen,
+            }
+        )
+    end
+
+    self:set_cell(value, row, col)
 end
 
 function Grid:render_row(row)
@@ -259,6 +296,7 @@ end
 
 function Grid:set_highlights()
     self._line_extmarks = {}
+    self._extmarks = {}
 
     for lnum, row in ipairs(self._rows) do
         assert(Row.is_row(row), "Non-row value found in grid")

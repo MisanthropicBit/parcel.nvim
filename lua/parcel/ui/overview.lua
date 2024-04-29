@@ -3,6 +3,7 @@ local config = require("parcel.config")
 local icons = require("parcel.icons")
 local Grid = require("parcel.ui.grid")
 local Lines = require("parcel.ui.lines")
+local async_utils = require("parcel.tasks.async_utils")
 
 local uv = vim.loop
 
@@ -63,7 +64,6 @@ function Overview:init(options)
     end
 
     -- Set default window options
-    vim.print(self.win_id)
     for option, value in pairs(window_options) do
         vim.api.nvim_win_set_option(self.win_id, option, value)
     end
@@ -77,15 +77,14 @@ function Overview:init(options)
 
     self:on_key(mappings.pin, function(_self, parcel, row_idx)
         if parcel then
-            parcel.spec.pinned = not parcel.spec.pinned
+            parcel:toggle_pinned()
             _self:update(row_idx)
         end
     end)
 
     self:on_key(mappings.disable, function(_self, parcel, row_idx)
         if parcel then
-            parcel.spec.disabled = not parcel.spec.disabled
-            vim.print(_self)
+            parcel:toggle_disabled()
             _self:update(row_idx)
         end
     end)
@@ -131,36 +130,41 @@ function Overview:init(options)
 
     self:on_key(mappings.install, function(_self, parcel)
         if parcel then
-            if parcel.state == "installed" then
+            if parcel:state() == "installed" then
                 return
             end
 
+            -- TODO: Refactor this out into an update timer or separate methods
             local frame_idx = 1
-            local timer = uv.new_timer()
+            local id = parcel._highlight.id
+            local row = _self.grid:get_row_for_extmark_id(id)
 
             local animate_icon = vim.schedule_wrap(function()
-                local update_icon = icons.get_animation_frame(config.ui.icons.updating, frame_idx)
-                _self.grid:set_cell(update_icon, 1, 1)
+                local update_icon = icons.get_animation_frame(
+                    config.ui.icons.updating,
+                    frame_idx
+                )
 
-                -- TODO: Re-render only the affected line
                 -- TODO: Throttle calls to render
-                _self:render()
+                -- TODO: Make a utility method in this class to render a grid position
+                -- and then throttle it as well
+                _self.grid:render_by_extmark(id, update_icon, row, 1)
 
                 frame_idx = frame_idx + 1
             end)
 
             local on_finish_install = vim.schedule_wrap(function()
-                parcel.state = "installed"
-                _self.grid:set_cell(config.ui.icons.installed, 1, 1)
-                _self:render()
+                parcel:set_state("installed")
+                _self.grid:render_by_extmark(id, config.ui.icons.installed, row, 1)
             end)
 
-            parcel.state = "updating"
+            local timer = uv.new_timer()
+            parcel:set_state("updating")
 
             timer:start(0, 100, function()
                 animate_icon()
 
-                if frame_idx > 10 then
+                if frame_idx > 20 then
                     on_finish_install()
                     timer:stop()
                 end
@@ -169,7 +173,7 @@ function Overview:init(options)
             -- actions.install.run({ parcel }, {
             --     callback = function()
             --         if parcel._installed then
-            --             _self.grid:set_cell(config.ui.icons[parcel.state], parcel._grid_row, 1)
+            --             _self.grid:set_cell(config.ui.icons[parcel:state()], parcel._grid_row, 1)
             --             _self.grid:render_by_extmark(parcel._highlight.id)
             --         end
             --     end
@@ -194,6 +198,8 @@ function Overview:init(options)
     --         self:update_parcels()
     --     end
     -- end)
+
+    -- self.update = async_utils.throttle(100, self.update)
 
     -- Set an autocommand to update the self from asynchronous tasks
     vim.api.nvim_create_autocmd(
@@ -230,23 +236,54 @@ end
 function Overview:create_parcel_columns(parcel)
     local state_highlight = {
         installed = "Conditional",
-        not_installed = "",
-        updating = "",
+        not_installed = "ErrorMsg",
+        updating = "WarningMsg",
         updates_available = "",
         loaded = "diffAdded",
     }
 
-    local icons = config.ui.icons
-    local source_type_icon = icons[parcel:source()] or icons.unknown_source
+    local _icons = config.ui.icons
+    local source_type_icon = _icons[parcel:source()] or _icons.unknown_source
 
     return {
-        { icons[parcel.state], rpad = 2, hl = state_highlight[parcel.state] },
-        { icons.parcel,        rpad = 2, hl = "Special" },
-        { source_type_icon,    rpad = 1, hl = "Special" },
-        { parcel:name(),         align = "left", pad = "auto", min_pad = 1, hl = "String" },
-        { parcel:version(), rpad = 1, hl = "Type" },
-        { parcel.spec.pinned,  icon = icons.pinned, hl = "Identifier", rpad = 1 },
-        { parcel.spec.dev,     icon = icons.dev, hl = "Identifier" },
+        {
+            _icons[parcel:state()],
+            rpad = 2,
+            hl = state_highlight[parcel:state()],
+        },
+        {
+            _icons.parcel,
+            rpad = 2,
+            hl = "Special",
+        },
+        {
+            source_type_icon,
+            rpad = 1,
+            hl = "Special",
+        },
+        {
+            parcel:name(),
+            align = "left",
+            pad = "auto",
+            min_pad = 1,
+            hl = "String",
+        },
+        {
+            parcel:version(),
+            rpad = 1,
+            hl = "Type",
+        },
+        {
+            parcel:pinned(),
+            icon = _icons.pinned,
+            hl = "Identifier",
+            rpad = 1,
+        },
+        {
+            parcel:local_development(),
+            icon = _icons.dev,
+            hl = "Identifier",
+        },
     }
 end
 
@@ -294,18 +331,17 @@ function Overview:format_text(text)
 end
 
 function Overview:add_git_subsection(parcel, section)
-    vim.print("Why is this called?")
     local icons = config.ui.icons
     local section_bullet = icons.section_bullet
 
-    if parcel.spec.version then
+    if parcel:version() then
         section
             :add(
                 "Version         ",
                 "Keyword", -- ParcelSectionVersion",
                 { sep = section_bullet }
             )
-            :add(self:format_text(parcel.spec.version))
+            :add(self:format_text(parcel:version()))
             :newline()
     end
 
@@ -351,7 +387,7 @@ function Overview:add_subsection(parcel, offset)
         sep = section_sep .. " ",
     })
 
-    if parcel.state ~= "installed" then
+    if parcel:state() ~= "installed" then
         section
             :newline()
             :add("Not installed", "ErrorMsg", { sep = section_bullet })
@@ -362,7 +398,7 @@ function Overview:add_subsection(parcel, offset)
 
     section:newline()
 
-    if parcel.description then
+    if parcel:description() then
         section:add(parcel:description()):newline():newline()
     end
 
@@ -378,6 +414,8 @@ function Overview:add_subsection(parcel, offset)
         :newline()
 
 
+    local deps = parcel:dependencies()
+
     section
         :newline()
         :add(
@@ -385,7 +423,7 @@ function Overview:add_subsection(parcel, offset)
             "Label",
             {
                 sep = section_double_bullet,
-                args = { #(parcel.dependencies or {}) },
+                args = { #deps },
             }
         )
         :newline()
@@ -397,8 +435,6 @@ function Overview:add_subsection(parcel, offset)
         sep = icons.section_sep .. " ",
     })
 
-    local deps = parcel.dependencies or {}
-
     if deps then
         for _, dep in ipairs(deps) do
             dep_grid:add_row({
@@ -407,6 +443,8 @@ function Overview:add_subsection(parcel, offset)
             })
         end
     end
+
+    local ext_deps = parcel:external_dependencies()
 
     section
         :add(dep_grid)
@@ -417,10 +455,10 @@ function Overview:add_subsection(parcel, offset)
             "Label",
             {
                 sep = section_double_bullet,
-                args = { #parcel:external_dependencies() },
+                args = { #ext_deps },
             }
         )
-        :newline(#parcel.external_dependencies > 0)
+        :newline(#ext_deps > 0)
         :newline()
 
     local ext_dep_grid = Grid:new({
@@ -428,7 +466,7 @@ function Overview:add_subsection(parcel, offset)
         sep = icons.section_sep .. " ",
     })
 
-    for _, dep in ipairs(parcel:external_dependencies()) do
+    for _, dep in ipairs(ext_deps) do
         ext_dep_grid:add_row({
             { icons.external_dependency .. " " .. dep.name, min_pad = 5 },
             { dep.version, align = "right" },

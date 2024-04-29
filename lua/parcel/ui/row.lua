@@ -24,8 +24,6 @@ function Row:set_columns(columns)
 end
 
 function Row:column(idx)
-    vim.print(self._columns)
-    vim.print(self._columns[idx])
     return self._columns[idx]
 end
 

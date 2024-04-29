@@ -12,7 +12,7 @@ function icons.get_animation_frame(icon, idx)
     if type(icon) == "string" then
         return icon
     else
-        return icon[idx]
+        return icon[((idx - 1) % #icon) + 1]
     end
 end
 

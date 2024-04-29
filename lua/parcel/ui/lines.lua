@@ -131,7 +131,6 @@ function Lines:render(buffer, lnum)
                 if text.hl ~= nil then
                     local extmark = { hl_group = text.hl, end_col = col }
 
-                    vim.print(config.namespace, buffer, _lnum, start_col, extmark)
                     vim.api.nvim_buf_set_extmark(
                         buffer,
                         config.namespace,

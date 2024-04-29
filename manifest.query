@@ -1,0 +1,16 @@
+;; Write your query here like `(node) @capture`,
+;; put the cursor under the capture to highlight the matches.
+
+(assignment_statement
+  (variable_list
+    name: (identifier) @repository (#match? @repository "^repository$")
+  )
+  (expression_list
+    value: (table_constructor
+      (field
+        name: (identifier) @rock (#match? @rock "^neotest$")
+        value: (table_constructor) @versions
+      )
+    )
+  )
+)

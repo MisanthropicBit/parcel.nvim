@@ -16,11 +16,11 @@ local function _install(parcel)
             args = {
                 source.url_from_parcel(parcel),
                 {
-                    dir = Path.join(config.path, parcel.name),
+                    dir = Path.join(config.path, parcel:name()),
                     -- TODO: on_done is maybe a better name?
                     on_exit = function(success, result)
                         if success then
-                            parcel.state = "installed"
+                            parcel:set_state("installed")
                             parcel._installed = true
                         else
                             parcel:set_error(result)

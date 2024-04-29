@@ -12,7 +12,7 @@ local State = {
 
 ---@class parcel.Parcel
 ---@field _name string
----@field state parcel.State
+---@field _state parcel.State
 ---@field issues_url? string
 ---@field pulls_url? string
 ---@field _version? string
@@ -36,7 +36,7 @@ local parcel_defaults = {
     url = nil,
     issues_url = nil,
     pulls_url = nil,
-    state = State.not_installed
+    _state = State.not_installed
 }
 
 function Parcel:new(args)
@@ -53,7 +53,7 @@ function Parcel:new(args)
 end
 
 function Parcel:set_error(error)
-    self.state = State.failed
+    self._state = State.failed
     self._error = error
 end
 
@@ -68,11 +68,35 @@ function Parcel:iter_ext_dependencies()
 end
 
 function Parcel:state()
-    return self.state
+    return self._state
+end
+
+function Parcel:set_state(new_state)
+    self._state = new_state
 end
 
 function Parcel:name()
     return self.packspec and self.packspec.package or self.spec.name
+end
+
+function Parcel:pinned()
+    return self._pinned
+end
+
+function Parcel:toggle_pinned()
+    self._pinned = not self._pinned
+end
+
+function Parcel:disabled()
+    return self._disabled
+end
+
+function Parcel:toggle_disabled()
+    self._disabled = not self._disabled
+end
+
+function Parcel:local_development()
+    return self._dev
 end
 
 function Parcel:source()
@@ -89,6 +113,10 @@ end
 
 function Parcel:description()
     return self.packspec and self.packspec.description.summary or nil
+end
+
+function Parcel:dependencies()
+    return self.packspec and self.packspec.dependencies or {}
 end
 
 function Parcel:external_dependencies()

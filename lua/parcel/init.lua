@@ -7,8 +7,8 @@ local Parcel = require("parcel.parcel")
 local Spec = require("parcel.spec")
 
 ---@class parcel.UserSpec
----@field git? parcel.Spec[]
----@field luarocks? parcel.Spec[]
+---@field git? (string | parcel.Spec)[]
+---@field luarocks? (string | parcel.Spec)[]
 
 ---@class parcel.Definition
 ---@field options table
@@ -38,7 +38,7 @@ function parcel.setup(definition)
 
         actions.install.run(config._parcels, {
             callback = function(results)
-                log.info("Installed %s parcels", #results)
+                log.info("Installed %d parcels", #results)
             end,
         })
     end

@@ -1,0 +1,11 @@
+;; Write your query here like `(node) @capture`,
+;; put the cursor under the capture to highlight the matches.
+
+(assignment_statement
+  (variable_list
+    name: (identifier) @dependencies_var (#match? @dependencies_var "^dependencies$")
+  )
+  (expression_list
+    value: (table_constructor) @dependencies
+  )
+)
