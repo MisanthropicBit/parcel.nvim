@@ -13,6 +13,7 @@ local config_loaded = false
 ---@field ui parcel.UiConfig
 
 local default_config = {
+    dir = vim.fn.stdpath("data"),
     log_level = vim.log.levels.WARN,
     max_concurrency = 4,
     ui = {

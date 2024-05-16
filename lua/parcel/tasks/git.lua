@@ -4,6 +4,7 @@ local async = require("parcel.tasks.async")
 local log = require("parcel.log")
 local process = require("parcel.process")
 
+---@param url string
 git.clone = async.wrap(function(url, options, callback)
     local args = {
         "clone",
@@ -20,8 +21,8 @@ git.clone = async.wrap(function(url, options, callback)
 
     table.insert(args, _options.dir)
 
-    vim.print("git.clone", { args = args })
-    log.debug("git.clone", { args = args })
+    -- TODO: Fix logging these types of arguments
+    log.debug("tasks.git.clone", { args = args })
 
     return process.spawn("git", {
         args = args,

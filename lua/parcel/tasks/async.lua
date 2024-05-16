@@ -66,6 +66,8 @@ function async.run(func, callback, ...)
         end
 
         local args = { select(4, unpack(results)) }
+
+        -- Overwrite the callback to instead call the step function
         args[nargs] = step
 
         err_or_fn(unpack(args, 1, nargs))
@@ -89,7 +91,7 @@ function async.wrap(func, argc)
 end
 
 -- Run a bunch of tasks and wait for them all to complete
-async.wait_all = async.wrap(function(tasks, callback)
+async.wait_all = async.wrap(function(tasks, options, callback)
     local done = 0
     local results = {}
 
@@ -104,15 +106,12 @@ async.wait_all = async.wrap(function(tasks, callback)
                     callback(results)
                 end
             else
-                for _, _task in ipairs(tasks) do
-                    _task:cancel()
-                end
-
+                task:cancel()
                 callback(results)
             end
         end)
     end
-end, 2)
+end, 3)
 
 -- Runs a bunch of tasks and returns the result of the first one to complete
 async.first = async.wrap(function(tasks, step)

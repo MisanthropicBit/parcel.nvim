@@ -1,59 +1,79 @@
+local sources = require("parcel.sources")
+
+--- A user specification of a parcel as passed to the setup function
+---@class parcel.Spec
+---@field name string name of the spec
+---@field source string source type
+---@field branch? string optional branch
+---@field version? string optional verison
+---@field tag? string optional tag (may be a version too)
+---@field pinned? boolean pin branch/tag/version
+---@field disabled? boolean
+---@field dev? boolean
+---@field as? string
+---@field url? string
+---@field _errors string[]
 local Spec = {
-    name = '',
+    name = "",
     pinned = false,
     disabled = false,
     dev = false,
 }
 
----@enum parcel.Source
-local Source = {
-    git = 0,
-    luarocks = 1,
-}
-
-local github_url_format = "https://www.github.com/%s.git"
-
---- A user specification of a parcel as passed to the setup function
----@class parcel.Spec
----@field name string
----@field source string
----@field branch? string
----@field version? string
----@field tag? string
----@field pinned? boolean
----@field disabled? boolean
----@field dev? boolean
----@field as? string
----@field url? string
-
 ---@return parcel.Spec
 function Spec:new(raw_spec, source)
-    Spec.validate(raw_spec, source)
+    Spec:validate(raw_spec, source)
 
     local spec_name = type(raw_spec) == "string" and raw_spec or raw_spec[1]
-    local spec = { name = spec_name, source = source }
+    local spec = {
+        name = spec_name,
+        source = source,
+        _errors = {},
+    }
 
-    self.__index = self
-    setmetatable(spec, self)
+    setmetatable(spec, { __index = self })
 
     return spec
 end
 
-function Spec.validate(spec, source)
-    -- if source(spec[1]) ~= "string" then
-    --     error("Expected parcel name as first table element", 2)
-    -- end
+---@return string[]
+function Spec:errors()
+    return self._errors
+end
 
-    if Source[source] == nil then
-        error(("Source '%s' is not supported"):format(source))
+function Spec:push_error(err, ...)
+    table.insert(self._errors, err:format(...))
+end
+
+function Spec:validate(spec, _source)
+    local ok, source = pcall(sources.get_source, _source)
+
+    if not ok then
+        self:push_error("Source '%s' is not supported", _source)
+        return false
     end
 
-    if source == Source.git then
-        local url_format = spec.url or github_url_format
+    if type(spec) == "string" then
+        return true
+    end
 
-        spec.url = url_format:format(spec.name)
-    elseif source == Source.luarocks then
-        -- TODO
+    if type(spec) ~= "table" then
+        self:push_error("Expected string or table, got '%s", type(spec))
+        return false
+    end
+
+    if type(spec[1]) ~= "string" then
+        self:push_error("Expected parcel name as first table element")
+        return false
+    end
+
+    local config_keys = source.configuration_keys()
+
+    for key, _ in pairs(spec) do
+        if not vim.tbl_contains(config_keys, key) then
+            self:push_error("Unknown configuration key '%s'", key)
+            return false
+        end
     end
 end
 

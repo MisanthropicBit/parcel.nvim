@@ -1,8 +1,27 @@
 local config = require("parcel.config")
 -- local version = require("parcel.version")
 
+---@class parcel.Parcel
+---@field issues_url? string
+---@field pulls_url? string
+---@field source_type string
+---@field dependencies? parcel.Dependency[]
+---@field packspec? parcel.Packspec
+---@field private _spec parcel.Spec
+---@field private _name string
+---@field private _state parcel.State
+---@field private _license? string
+---@field private _source? string
+---@field private _description? string
+---@field private _external_dependencies? parcel.ExternalDependency[]
+---@field private _highlight table
+local Parcel = {
+    issues_url = nil,
+    pulls_url = nil,
+}
+
 ---@enum parcel.State
-local State = {
+Parcel.State = {
     installed = "installed",
     not_installed = "not_installed",
     updating = "updating",
@@ -10,33 +29,12 @@ local State = {
     failed = "failed",
 }
 
----@class parcel.Parcel
----@field _name string
----@field _state parcel.State
----@field issues_url? string
----@field pulls_url? string
----@field _version? string
----@field _license? string
----@field _source? string
----@field source_type string
----@field _description? string
----@field dependencies? parcel.Dependency[]
----@field _external_dependencies? parcel.ExternalDependency[]
----@field spec parcel.Spec
----@field packspec? parcel.Packspec
----@field _highlight table
-
-local Parcel = {
-    issues_url = nil,
-    pulls_url = nil,
-}
-
 ---@type parcel.Parcel
 local parcel_defaults = {
     url = nil,
     issues_url = nil,
     pulls_url = nil,
-    _state = State.not_installed
+    _state = Parcel.State.not_installed
 }
 
 function Parcel:new(args)
@@ -52,8 +50,9 @@ function Parcel:new(args)
     return setmetatable(parcel, self)
 end
 
+---@param error string
 function Parcel:set_error(error)
-    self._state = State.failed
+    self:set_state(Parcel.State.failed)
     self._error = error
 end
 
@@ -67,14 +66,25 @@ function Parcel:iter_ext_dependencies()
     return ipairs(self:external_dependencies())
 end
 
+function Parcel:spec()
+    -- TODO: Copy spec or set metatable to disallow mutation
+    return self._spec
+end
+
+function Parcel:spec_errors()
+    return self._spec:errors()
+end
+
 function Parcel:state()
     return self._state
 end
 
+---@param new_state parcel.State
 function Parcel:set_state(new_state)
     self._state = new_state
 end
 
+---@return string
 function Parcel:name()
     return self.packspec and self.packspec.package or self.spec.name
 end

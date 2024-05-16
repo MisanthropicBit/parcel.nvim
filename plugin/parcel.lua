@@ -71,8 +71,10 @@ local ui = require("parcel.ui")
 -- }
 
 local subcommands = {
-    -- install = require("parcel.actions.install"),
-    -- log = require("parcel.commands.log"),
+    log = {}, -- require("parcel.commands.log"),
+    clean = {}, -- require("parcel.commands.clean"),
+    update = {},
+    selfupdate = {},
 }
 
 local function complete()
@@ -82,7 +84,7 @@ end
 ---@type parcel.Overview?
 local overview
 
-local function run(options)
+local function run_command(options)
     local args = options.fargs
     local subcommand = table.remove(args, 1)
 
@@ -103,12 +105,11 @@ local function run(options)
             })
             overview:update()
         end
-
         overview:render()
     end
 end
 
-vim.api.nvim_create_user_command("Parcel", run, {
+vim.api.nvim_create_user_command("Parcel", run_command, {
     nargs = "?",
     complete = complete
 })

@@ -38,7 +38,7 @@ function Task:done()
 end
 
 --- Return a pre-defined task for a given source
----@param source parcel.Source
+---@param source parcel.SourceType
 ---@return parcel.Task
 -- function Task.predefined(source)
 --     return predefined[source]

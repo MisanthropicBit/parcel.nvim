@@ -1,18 +1,9 @@
 ---@class parcel.Path
 ---@field _parts string[]
+---@field _extensions string[]
 local Path = {}
 
----@return parcel.Path
-function Path:new(...)
-    local path = {
-        _parts = { ... }
-    }
-    self.__index = self
-
-    return setmetatable(path, self)
-end
-
-local function sep()
+local function separator()
     if jit then
         local os = string.lower(jit.os)
 
@@ -27,7 +18,7 @@ local function sep()
 end
 
 ---@type string
-Path.sep = sep()
+Path.separator = separator()
 
 local function newline()
     if jit then
@@ -39,7 +30,6 @@ local function newline()
             return "\r\n"
         end
     else
-        -- TODO
         return package.config:sub(1, 1)
     end
 end
@@ -47,8 +37,24 @@ end
 ---@type string
 Path.newline = newline()
 
+---@param ext string
+---@return string
+local function ensure_dot_extension(ext)
+    return vim.startswith(ext, ".") and ext or "." .. ext
+end
+
+---@return parcel.Path
+function Path:new(...)
+    local path = {
+        _parts = { ... },
+        _extensions = {},
+    }
+
+    return setmetatable(path, { __index = self })
+end
+
 function Path.join(...)
-    return table.concat({ ... }, Path.sep)
+    return table.concat({ ... }, Path.separator)
 end
 
 ---@param self parcel.Path
@@ -67,7 +73,20 @@ end
 
 ---@return string
 function Path:absolute()
-    return vim.fs.normalize(Path.join(unpack(self._parts)))
+    local norm_path = vim.fs.normalize(Path.join(unpack(self._parts)))
+
+    return norm_path .. table.concat(
+        vim.tbl_map(ensure_dot_extension, self._extensions),
+        Path.separator
+    )
+end
+
+---@param ext string
+---@return parcel.Path
+function Path:add_extension(ext)
+    table.insert(self._extensions, ensure_dot_extension(ext))
+
+    return self
 end
 
 return Path
