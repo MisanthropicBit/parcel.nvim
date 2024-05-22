@@ -50,6 +50,7 @@ function Parcel:new(args)
     return setmetatable(parcel, self)
 end
 
+-- TODO: Instead push multiple errors with a context table
 ---@param error string
 function Parcel:set_error(error)
     self:set_state(Parcel.State.failed)

@@ -1,8 +1,14 @@
 local sources = {}
 
----@class parcel.SourceSupportResult
----@field supported boolean
----@field reason string?
+---@class parcel.SourceNoSupport
+---@field supported false
+---@field reason string
+
+---@class parcel.SourceSupported
+---@field supported true
+---@field reason nil
+
+---@alias parcel.SourceSupportResult parcel.SourceSupported | parcel.SourceNoSupport
 
 ---@class parcel.SourceSupport
 ---@field general parcel.SourceSupportResult
@@ -23,6 +29,7 @@ local sources = {}
 sources.Source = {
     git = "git",
     luarocks = "luarocks",
+    dev = "dev",
 }
 
 ---@return table<string, parcel.SourceConfigKey>
