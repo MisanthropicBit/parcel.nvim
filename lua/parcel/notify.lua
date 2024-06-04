@@ -13,7 +13,13 @@ local supported_levels = {
 ---@param level integer
 ---@param ... any
 local function _notify(message, level, ...)
-    vim.notify(message:format(...), level)
+    local args = { ... }
+
+    -- Notification may be overridden by the user and call vimscript functions or
+    -- functions that are not safe to call in async code
+    vim.schedule(function()
+        vim.notify(message:format(args), level)
+    end)
 end
 
 notify.log = {}

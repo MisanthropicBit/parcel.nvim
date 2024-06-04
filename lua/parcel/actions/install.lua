@@ -1,4 +1,3 @@
-local async = require("parcel.tasks.async")
 local config = require("parcel.config")
 local notify = require("parcel.notify")
 local sources = require("parcel.sources")
@@ -7,32 +6,40 @@ local Task = require("parcel.tasks")
 ---@async
 ---@param parcel parcel.Parcel
 ---@return parcel.Task
-local function _install(parcel)
-    return Task.create(function()
+local function install_parcel(parcel)
+    return Task.new(function()
         local source = sources.get_source(parcel:source())
         ---@cast source -nil
 
         --- TODO: Notify overview here
-        parcel:set_state(parcel.State.updating)
+        parcel:set_state(parcel.State.Updating)
 
-        local task = source.install(parcel)
+        local result = source.install(parcel)
+        -- vim.print(result)
+        -- local state = result and parcel.State.Installed or parcel.State.Failed
 
-        if not task:failed() then
-            parcel:set_state(parcel.State.installed)
-        else
-            parcel:set_error(task:error())
-        end
+        -- --- TODO: Notify overview here
+        -- parcel:set_state(state)
+        -- if not task:failed() then
+        --     parcel:set_state(parcel.State.installed)
+        -- else
+        --     parcel:push_error(task:error())
+        -- end
     end)
 end
 
 ---@async
 ---@param parcels parcel.Parcel[]
-return function(parcels, options)
-    Task.run(function()
+---@return parcel.Task
+return function(parcels)
+    return Task.run(function()
         ---@type parcel.Task[]
-        local tasks = vim.tbl_map(_install, parcels)
-        local results = async.wait_all(tasks, { concurrency = config.concurrency })
+        local tasks = vim.tbl_map(install_parcel, parcels)
+        local results = Task.wait_all(tasks, { concurrency = config.concurrency })
+        vim.print(vim.inspect({ "wait_all results", results }))
 
-        notify.log.info("Finished installing %d parcels", #parcels)
+        -- notify.log.info("Finished installing %d parcels", #parcels)
+
+        return results
     end)
 end

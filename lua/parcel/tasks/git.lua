@@ -1,11 +1,11 @@
 local git = {}
 
-local async = require("parcel.tasks.async")
 local log = require("parcel.log")
-local process = require("parcel.process")
+local process = require("parcel.async.process")
+local Task = require("parcel.tasks")
 
 ---@param url string
-git.clone = async.wrap(function(url, options, callback)
+git.clone = Task.wrap(function(url, options, callback)
     local args = {
         "clone",
         url,
@@ -22,9 +22,9 @@ git.clone = async.wrap(function(url, options, callback)
     table.insert(args, _options.dir)
 
     -- TODO: Fix logging these types of arguments
-    log.debug("tasks.git.clone", { args = args })
+    -- log.debug("tasks.git.clone", { args = args })
 
-    return process.spawn("git", {
+    local git_process = process.spawn("git", {
         args = args,
         on_exit = function(success, result)
             local on_exit = _options.on_exit
@@ -40,6 +40,8 @@ git.clone = async.wrap(function(url, options, callback)
             end
         end
     })
+
+    return git_process:wait()
 end, 3)
 
 return git

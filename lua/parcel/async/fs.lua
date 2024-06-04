@@ -1,4 +1,4 @@
-local async = require("parcel.async")
+local Task = require("parcel.tasks")
 
 ---@type table<string, integer>
 local async_fs = {
@@ -22,7 +22,7 @@ return setmetatable({}, {
             error(("Failed to access unknown async fs function with name '%s'"):format(key))
         end
 
-        func = async.wrap(vim.loop["fs_" .. key], argc)
+        func = Task.wrap(vim.loop["fs_" .. key], argc)
         cache[key] = func
 
         return func

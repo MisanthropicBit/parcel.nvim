@@ -8,6 +8,7 @@ local state = require("parcel.state")
 local sources = require("parcel.sources")
 local Parcel = require("parcel.parcel")
 local Spec = require("parcel.spec")
+local utils = require("parcel.utils")
 
 ---@class parcel.UserSpec
 ---@field git? (string | parcel.Spec)[]
@@ -15,7 +16,7 @@ local Spec = require("parcel.spec")
 
 ---@class parcel.SetupConfiguration
 ---@field options parcel.Config
----@field parcels table<string, parcel.Spec>
+---@field sources table<string, parcel.Spec>
 
 local function resolve_specs(source_name, specs)
     local ok, source = pcall(sources.get_source, source_name)
@@ -24,6 +25,8 @@ local function resolve_specs(source_name, specs)
         notify.log.error(source)
         return
     end
+
+    ---@cast source parcel.Source
 
     local supported, reason = source.supported()
 
@@ -36,15 +39,16 @@ local function resolve_specs(source_name, specs)
 
     local spec_errors = 0
 
-    for _, spec in ipairs(specs) do
-        local validated_spec = Spec:new(spec, source_name)
+    for _, raw_spec in ipairs(specs) do
+        local spec = Spec:new(raw_spec, source_name)
+        spec:validate()
 
-        if #validated_spec:errors() > 0 then
-            spec_errors = spec_errors + #validated_spec:errors()
+        if #spec:errors() > 0 then
+            spec_errors = spec_errors + #spec:errors()
         end
 
         -- TODO: Change config._parcels to state.parcels()
-        state.add_parcel(Parcel:new({ spec = validated_spec }))
+        state.add_parcel(Parcel:new({ spec = spec }))
     end
 
     if spec_errors > 0 then
@@ -58,16 +62,17 @@ end
 
 ---@param configuration parcel.SetupConfiguration
 function parcel.setup(configuration)
+    -- TODO: Replace with validation from config module
     vim.validate({ configuration = { configuration, "table" } })
 
     config.setup(configuration.options)
 
-    if type(configuration.parcels) ~= "table" then
-        notify.log.error("config.parcels is not a table")
+    if type(configuration.sources) ~= "table" then
+        notify.log.error("config.sources is not a table")
         return
     end
 
-    for source_name, specs in pairs(configuration.parcels) do
+    for source_name, specs in pairs(configuration.sources) do
         resolve_specs(source_name, specs)
     end
 

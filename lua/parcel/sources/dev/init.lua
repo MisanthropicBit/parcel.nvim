@@ -20,20 +20,39 @@ function dev_source.supported()
     }
 end
 
+-- TODO: Return a structure that is put into each parcel instead?
 function dev_source.install(parcel)
     local path = parcel:name()
-    local stat = async.fs.stat(path)
+    local normpath = vim.fs.normalize(path)
+    -- FIX: err might be removed in tasks
+    local err, stat = async.fs.stat(normpath)
+    vim.print(vim.inspect({ "dev", err, stat }))
 
-    -- TODO: Check stat
-
-    local access = async.fs.access(path, "R")
-
-    if not access then
-        parcel:set_error("Cannot access")
+    if stat ~= nil then
+        parcel:push_error("Unable to stat local parcel", {
+            path = normpath,
+        })
         return
     end
 
-    vim.opt.runtimepath:append(path)
+    ---@cast stat -nil
+
+    if stat.type ~= "directory" then
+        parcel:push_error("Local parcel is not a directory", { path = normpath })
+        return
+    end
+
+    -- FIX: fs.access doesn't work with directories
+    -- local has_access = async.fs.access(normpath, "R")
+
+    -- if not has_access then
+    --     parcel:push_error("Cannot read local directory", { path = normpath })
+    --     return
+    -- end
+
+    vim.schedule(function()
+        vim.opt.runtimepath:append(path)
+    end)
 end
 
 return dev_source

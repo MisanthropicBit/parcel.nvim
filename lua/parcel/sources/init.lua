@@ -18,12 +18,13 @@ local sources = {}
 ---@field name fun(): string
 ---@field configuration_keys fun(): table<string, parcel.SourceConfigKey>
 ---@field supported async fun(): parcel.SourceSupport
----@field install async fun(parcel: parcel.Parcel, context: table?): parcel.Task
+---@field install async fun(parcel: parcel.Parcel, context: table?)
 
 ---@class parcel.SourceConfigKey
 ---@field name string
 ---@field expected_types (string | fun(key: any): boolean)[]
----@field optional boolean?
+---@field required boolean?
+---@field validator fun(value: any)
 
 ---@enum parcel.SourceType
 sources.Source = {
@@ -54,7 +55,11 @@ function sources.common_configuration_keys()
         {
             name = "dependencies",
             expected_types = { vim.tbl_islist },
-        }
+        },
+        {
+            name = "config",
+            expected_types = { "function" },
+        },
     }
 end
 

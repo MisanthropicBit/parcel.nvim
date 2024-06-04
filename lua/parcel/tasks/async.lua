@@ -29,7 +29,7 @@ end
 ---@param error any
 local function handle_callback(callback, results, error)
     if callback ~= nil then
-        if error ~= nil then
+        if error == nil then
             callback(true, { unpack(results, 2, table.maxn(results)) })
         else
             callback(false, error)
@@ -127,22 +127,59 @@ function async.wrap(func, argc)
     end
 end
 
+--- Run tasks waiting for all the finish successfully or not
+---@param tasks (function | parcel.Task)[]
+---@param options parcel.async.WaitOptions?
+function async.wait_all(tasks, options) end
+
 --- Run a bunch of tasks and wait for them all to complete
 async.wait_all = async.wrap(function(tasks, options, callback)
-    -- TODO: Add concurrency limit
     local done = 0
+    local task_idx = 1
     local results = {}
-    local concurrency = options and options.concurrency or #tasks
+    local _options = options or {}
+    local concurrency = options.concurrency or #tasks
+    local timeout = _options.timeout or nil
+    local timed_out = false
 
-    for task_idx = 1, concurrency, 1 do
-        Task.run(tasks[task_idx], function(success, result)
+    ---@type fun(idx: integer): fun(ok: boolean, result: any)
+    local task_callback
+
+    ---@param idx integer
+    local function run_next_task(idx)
+        if task_idx <= #tasks and not timed_out then
+            Task.run(tasks[task_idx], task_callback(idx))
+            task_idx = task_idx + 1
+        end
+    end
+
+    task_callback = function(idx)
+        return function(ok, result)
             done = done + 1
-            results[task_idx] = { success = success, result = result }
+            results[idx] = { ok = ok, result = result }
 
-            -- Finished all tasks, call callback with the results
-            if done == #tasks then
-                callback(results)
+            if timed_out then
+                return
+            elseif done == #tasks then
+                -- Finished all tasks, call callback with the results
+                callback(true, results)
+            else
+                -- There are still tasks to run
+                run_next_task(task_idx)
             end
+        end
+    end
+
+    -- Initially start 'concurrency' number of tasks
+    while task_idx <= concurrency do
+        run_next_task(task_idx)
+    end
+
+    if timeout then
+        Task.run(function()
+            Task.sleep(timeout)
+            timed_out = true
+            callback(false, "timeout")
         end)
     end
 end, 3)
@@ -158,6 +195,14 @@ async.first = async.wrap(function(tasks, callback)
         local _task = Task.run(task, function(success, ...)
             if not done then
                 done = true
+
+                -- Cancel other running tasks
+                for _idx, running_task in ipairs(running_tasks) do
+                    if _idx ~= idx then
+                        running_task:cancel()
+                    end
+                end
+
                 callback(...)
             end
         end)

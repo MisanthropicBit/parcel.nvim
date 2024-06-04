@@ -24,7 +24,10 @@ function git_source.configuration_keys()
         },
         {
             name = "commit",
-            expected_types = { "string" }, -- TODO: Add commit validation
+            expected_types = { "string" },
+            validator = function(commit_sha)
+                -- TODO: Add commit validation
+            end
         },
         {
             name = "branch",
@@ -48,15 +51,17 @@ function git_source.supported()
 end
 
 function git_source.install(parcel)
-    local url = url_from_parcel(parcel)
-    local dir = Path.join(config.path, parcel:source(), parcel:name())
-    local result = git.clone(url, { dir = dir })
+    return
 
-    if result.exit_code == 0 then
-        return false, result.stderr
-    end
+--     local url = url_from_parcel(parcel)
+--     local dir = Path.join(config.path, parcel:source(), parcel:name())
+--     local result = git.clone(url, { dir = dir })
 
-    return true, nil
+--     if result.exit_code ~= 0 then
+--         return
+--     end
+
+--     vim.opt.runtimepath:append(dir)
 end
 
 return git_source

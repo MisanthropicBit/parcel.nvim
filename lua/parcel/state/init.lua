@@ -4,6 +4,7 @@ local config = require("parcel.config")
 local Path = require("parcel.path")
 local sources = require("parcel.sources")
 
+---@type parcel.Parcel[]
 local parcels = {}
 
 function state.get_installed_parcels()

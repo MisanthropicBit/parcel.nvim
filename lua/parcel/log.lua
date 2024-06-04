@@ -3,10 +3,12 @@ local log = {}
 local Path = require("parcel.path")
 
 local separator = "|"
-local log_level = vim.log.levels.WARN -- vim.fn.getenv("PARCEL_LOG_LEVEL") or vim.log.levels.WARN
+local default_log_level = vim.log.levels.WARN -- vim.fn.getenv("PARCEL_LOG_LEVEL") or vim.log.levels.WARN
 local date_format = "%FT%H:%M:%SZ%z"
 
 ---@class parcel.Logger
+---@field private _path parcel.Path
+---@field private _level integer
 local Logger = {}
 
 ---@param filename string
@@ -23,7 +25,7 @@ function Logger:new(filename, options)
     local handle = assert(io.open(logfile, "a+"), "Failed to open log file")
 
     logger._path = path
-    logger._level = _options.level or log_level
+    logger._level = vim.log.levels.INFO -- _options.level or default_log_level
 
     for level_name, level in pairs(vim.log.levels) do
         local _name = level_name:lower()
@@ -84,7 +86,22 @@ function Logger:new(filename, options)
     return logger
 end
 
+---@return parcel.Path
+function Logger:path()
+    return self._path
+end
+
+---@return integer
+function Logger:level()
+    return self._level
+end
+
 local default_logger = Logger:new("parcel")
+
+---@return parcel.Logger
+function log.default_logger()
+    return default_logger
+end
 
 for level, _ in pairs(vim.log.levels) do
     local _level = level:lower()

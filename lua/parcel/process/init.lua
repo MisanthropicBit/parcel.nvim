@@ -2,7 +2,16 @@ local process = {}
 
 local uv = vim.loop
 
-local signals = {}
+---@class parcel.ProcessOptions
+---@field args string[]?
+---@field cwd string?
+---@field on_exit fun(ok: boolean, result: any, code: integer, signal: integer?)
+---@field stdin uv_stream_t?
+---@field timeout integer?
+
+local signals = {
+    sigint = "sigint",
+}
 
 local function create_on_read_handler(result, stdio)
     return function(err, data)
@@ -13,8 +22,11 @@ local function create_on_read_handler(result, stdio)
     end
 end
 
+--- Spawn a process
+---@param command string
+---@param options parcel.ProcessOptions?
+---@return uv_process_t|nil
 function process.spawn(command, options)
-    local stdin = uv.new_pipe()
     local stdout = uv.new_pipe()
     local stderr = uv.new_pipe()
     local handle = nil
@@ -23,36 +35,43 @@ function process.spawn(command, options)
         stdout = {},
         stderr = {},
     }
+    local _options = options or {}
+    local stdin
+
+    if _options.stdin then
+        stdin = uv.new_pipe()
+    end
 
     handle, pid = uv.spawn(command, {
         stdio = { stdin, stdout, stderr },
-        args = options.args,
-        cwd = options.cwd,
+        args = _options.args,
+        cwd = _options.cwd,
     }, function(code, signal)
         handle:close()
-        stdin:close()
         stdout:close()
         stderr:close()
 
-        local on_exit = options.on_exit
+        if stdin then
+            stdin:close()
+        end
+
+        local on_exit = _options.on_exit
 
         if on_exit and type(on_exit) == "function" then
             on_exit(code == 0, result, code, signal)
         end
     end)
 
-    vim.print(handle, pid)
-
     uv.read_start(stdout, create_on_read_handler(result, "stdout"))
     uv.read_start(stderr, create_on_read_handler(result, "stderr"))
 
-    if options.stdin then
-        uv.write(stdin, options.stdin)
+    if _options.stdin then
+        uv.write(stdin, _options.stdin)
 
         uv.shutdown(stdin, function()
-            uv.close(handle, function()
-                print("process closed", handle, pid)
-            end)
+            if handle then
+                uv.close(handle)
+            end
         end)
     end
 

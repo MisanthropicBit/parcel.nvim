@@ -1,10 +1,3 @@
-local config = require("parcel.config")
-local notify = require("parcel.notify")
-local Parcel = require("parcel.parcel")
-local Spec = require("parcel.spec")
-local Packspec = require("parcel.packspec")
-local ui = require("parcel.ui")
-
 -- local parcels = {
 --     Parcel:new({
 --         state = "installed",
@@ -71,10 +64,10 @@ local ui = require("parcel.ui")
 -- }
 
 local subcommands = {
-    log = {}, -- require("parcel.commands.log"),
-    clean = {}, -- require("parcel.commands.clean"),
-    update = {},
-    selfupdate = {},
+    log = true,
+    clean = true,
+    update = true,
+    selfupdate = true,
 }
 
 local function complete()
@@ -89,22 +82,24 @@ local function run_command(options)
     local subcommand = table.remove(args, 1)
 
     if subcommand then
+        local notify = require("parcel.notify")
         local action = subcommands[subcommand]
 
         if action then
-            action.run()
+            require("parcel.commands." .. subcommand).run(options)
         else
             notify.warn("no such subcommand: '%s'", subcommand)
         end
     else
         if not overview then
-            overview = ui.Overview:new(config._parcels)
+            overview = require("parcel.ui").Overview:new(require("parcel.config")._parcels)
             overview:init({
                 float = args[2] == "float",
                 mods = options.mods,
             })
             overview:update()
         end
+
         overview:render()
     end
 end

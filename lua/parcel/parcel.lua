@@ -1,6 +1,10 @@
 local config = require("parcel.config")
 -- local version = require("parcel.version")
 
+---@class parcel.ParcelError
+---@field message string
+---@field context table?
+
 ---@class parcel.Parcel
 ---@field issues_url? string
 ---@field pulls_url? string
@@ -15,18 +19,21 @@ local config = require("parcel.config")
 ---@field private _description? string
 ---@field private _external_dependencies? parcel.ExternalDependency[]
 ---@field private _highlight table
+---@field private _errors parcel.ParcelError[]
 local Parcel = {
     issues_url = nil,
     pulls_url = nil,
 }
 
+Parcel.__index = Parcel
+
 ---@enum parcel.State
 Parcel.State = {
-    installed = "installed",
-    not_installed = "not_installed",
-    updating = "updating",
-    updates_available = "updates_available",
-    failed = "failed",
+    Installed = "Installed",
+    NotInstalled = "NotInstalled",
+    Updating = "Updating",
+    UpdatesAvailable = "UpdatesAvailable",
+    Failed = "Failed",
 }
 
 ---@type parcel.Parcel
@@ -34,27 +41,34 @@ local parcel_defaults = {
     url = nil,
     issues_url = nil,
     pulls_url = nil,
-    _state = Parcel.State.not_installed
+    _state = Parcel.State.NotInstalled,
+    _errors = {},
 }
 
 function Parcel:new(args)
-    local parcel = vim.tbl_deep_extend("force", parcel_defaults, args)
-    -- parcel.packspec = nil
-    parcel._highlight = {}
-    self.__index = self
-
     -- if parcel.version then
     --     parcel.version = vim.version.parse(parcel.version)
     -- end
 
-    return setmetatable(parcel, self)
+    return setmetatable(vim.tbl_extend("force", parcel_defaults, {
+        _highlight = {},
+        _spec = args.spec or {}
+    }), Parcel)
 end
 
--- TODO: Instead push multiple errors with a context table
 ---@param error string
-function Parcel:set_error(error)
-    self:set_state(Parcel.State.failed)
-    self._error = error
+---@param context table?
+function Parcel:push_error(error, context)
+    self:set_state(Parcel.State.Failed)
+
+    table.insert(self._errors, {
+        message = error,
+        context = context,
+    })
+end
+
+function Parcel:errors()
+    return self._errors
 end
 
 function Parcel:iter_dependencies()
@@ -67,6 +81,7 @@ function Parcel:iter_ext_dependencies()
     return ipairs(self:external_dependencies())
 end
 
+---@return parcel.Spec
 function Parcel:spec()
     -- TODO: Copy spec or set metatable to disallow mutation
     return self._spec
@@ -87,7 +102,7 @@ end
 
 ---@return string
 function Parcel:name()
-    return self.packspec and self.packspec.package or self.spec.name
+    return self.packspec and self.packspec.package or self._spec.name
 end
 
 function Parcel:pinned()
@@ -111,11 +126,11 @@ function Parcel:local_development()
 end
 
 function Parcel:source()
-    return self.packspec and self.packspec.repository.type or self.spec.source
+    return self.packspec and self.packspec.repository.type or self._spec._source
 end
 
 function Parcel:version()
-    return self.packspec and self.packspec.package or self.spec.version
+    return self.packspec and self.packspec.package or self._spec.version
 end
 
 function Parcel:license()
