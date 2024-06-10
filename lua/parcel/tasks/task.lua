@@ -35,15 +35,13 @@ end
 --- Handle the callback from an async function
 ---@param callback parcel.async.Callback?
 ---@param results any
----@param error any
-local function handle_callback(callback, results, error)
+---@param err any
+local function handle_callback(callback, results, err)
     if callback ~= nil then
-        if error == nil then
-            vim.print(vim.inspect({ "Returning", unpack(results, 2, table.maxn(results)) }))
+        if err == nil then
             callback(true, unpack(results, 2, table.maxn(results)))
         else
-            vim.print(vim.inspect({ "Error", error}))
-            callback(false, error)
+            callback(false, err)
         end
     end
 end
@@ -120,16 +118,16 @@ function Task.wrap(func, argc, options)
 
         if not is_main then
             -- Not in main coroutine, yield back to step function
-            local results = coroutine.yield(func, argc, ...)
-            vim.print(vim.inspect({ "yield got", results }))
+            local results = { coroutine.yield(func, argc, ...) }
 
-            return unpack(results, 2, table.maxn(results))
+            return unpack(results) -- unpack(results, 2, table.maxn(results))
         else
             if options and options.async_only then
                 require_async_context("some")
             end
 
             -- Allow calling wrapped functions in non-async contexts
+            -- TODO: Return from this as well?
             func(...)
         end
     end
@@ -176,7 +174,6 @@ local wait_all = Task.wrap(function(tasks, options, callback)
             if timed_out then
                 return
             elseif done == #tasks then
-                vim.print(vim.inspect({ "task results", results }))
                 -- Finished all tasks, call callback with the results
                 callback(true, results)
             else
@@ -309,10 +306,6 @@ function Task:start(...)
     local thread = self:coroutine()
 
     local function callback(ok, result)
-        vim.print(("Task %d done"):format(self._id))
-        vim.print(vim.inspect({ ok, result }))
-        vim.print(("Waitcallback %d: %s"):format(self._id, self._wait_callback))
-        vim.print(("Runcallback %d: %s"):format(self._id, self._run_callback))
         self._end_time = vim.loop.hrtime()
         self._failed = not ok
         self._result = result
@@ -333,20 +326,17 @@ function Task:start(...)
     -- via coroutine.resume yielding (pun intended) async/await-style
     -- programming
     step = function(...)
-        vim.print(("Task %d step"):format(self._id))
-        vim.print(vim.inspect({ ... }))
         if self:cancelled() then
             handle_callback(callback, "Task was cancelled")
             return
         end
 
-        local results = { coroutine.resume(thread, { ... }) }
+        local results = { coroutine.resume(thread, ...) }
         local status, err_or_fn, nargs = unpack(results)
-        vim.print(vim.inspect({ ("Task %d yield"):format(self._id), status, err_or_fn, nargs }))
 
         if not status then
             handle_callback(callback, nil, formatted_error(
-                "Task failed with this message: %s\n%s",
+                "Task failed: %s\n%s",
                 err_or_fn,
                 debug.traceback(thread)
             ))
@@ -354,8 +344,6 @@ function Task:start(...)
         end
 
         if coroutine.status(thread) == "dead" then
-            vim.print(("Task %d is dead"):format(self._id))
-            vim.print(vim.inspect(results))
             handle_callback(callback, results)
             return
         end
