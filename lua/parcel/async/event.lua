@@ -3,6 +3,8 @@
 ---@field private _set boolean
 local Event = {}
 
+local Task = require("parcel.tasks")
+
 ---@return parcel.async.Event
 function Event.new()
     local event = setmetatable({}, {
@@ -27,7 +29,7 @@ function Event:set()
     end
 end
 
-Event.wait = async.wrap(function(self, callback)
+Event.wait = Task.wrap(function(self, callback)
     if self:is_set() then
         callback()
     else

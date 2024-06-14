@@ -43,6 +43,7 @@ local function ensure_dot_extension(ext)
     return vim.startswith(ext, ".") and ext or "." .. ext
 end
 
+---@param ... string
 ---@return parcel.Path
 function Path:new(...)
     local path = {

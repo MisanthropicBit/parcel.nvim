@@ -32,24 +32,22 @@ local buffer_options = {
 ---@field lines parcel.Lines
 ---@field parcels_by_extmark table<integer, parcel.Parcel>
 ---@field selected table<integer, boolean>
----@field expanded table<integer, table>
+---@field sections table<integer, table>
 ---@field parcels parcel.Parcel[]
 local Overview = {}
+
+Overview.__index = Overview
 
 ---@param parcels parcel.Parcel[]
 ---@return parcel.Overview
 function Overview:new(parcels)
-    local overview = {
+    return setmetatable({
         lines = Lines:new(),
         parcels_by_extmark = {},
         selected = {},
-        expanded = {},
+        sections = {},
         parcels = parcels or {},
-    }
-
-    self.__index = self
-
-    return setmetatable(overview, self)
+    }, Overview)
 end
 
 ---@param options table
@@ -75,12 +73,12 @@ function Overview:init(options)
 
     local mappings = config.ui.mappings
 
-    self:on_key(mappings.pin, function(_self, parcel, row_idx)
-        if parcel then
-            parcel:toggle_pinned()
-            _self:update(row_idx)
-        end
-    end)
+    -- self:on_key(mappings.pin, function(_self, parcel, row_idx)
+    --     if parcel then
+    --         parcel:toggle_pinned()
+    --         _self:update(row_idx)
+    --     end
+    -- end)
 
     self:on_key(mappings.disable, function(_self, parcel, row_idx)
         if parcel then
@@ -117,7 +115,8 @@ function Overview:init(options)
     end)
 
     self:on_key(mappings.collapse_all, function(_self)
-        for highlight_id, expanded in pairs(self.expanded) do
+        for highlight_id, expanded in pairs(self.sections) do
+            ---@diagnostic disable-next-line: invisible
             local lnum = self.parcels_by_extmark[highlight_id]._highlight.lnum
 
             if expanded.visible then
@@ -128,58 +127,58 @@ function Overview:init(options)
         end
     end)
 
-    self:on_key(mappings.install, function(_self, parcel)
-        if parcel then
-            if parcel:state() == "installed" then
-                return
-            end
+    -- self:on_key(mappings.install, function(_self, parcel)
+    --     if parcel then
+    --         if parcel:state() == "installed" then
+    --             return
+    --         end
 
-            -- TODO: Refactor this out into an update timer or separate methods
-            local frame_idx = 1
-            local id = parcel._highlight.id
-            local row = _self.grid:get_row_for_extmark_id(id)
+    --         -- TODO: Refactor this out into an update timer or separate methods
+    --         local frame_idx = 1
+    --         local id = parcel._highlight.id
+    --         local row = _self.grid:get_row_for_extmark_id(id)
 
-            local animate_icon = vim.schedule_wrap(function()
-                local update_icon = icons.get_animation_frame(
-                    config.ui.icons.updating,
-                    frame_idx
-                )
+    --         local animate_icon = vim.schedule_wrap(function()
+    --             local update_icon = icons.get_animation_frame(
+    --                 config.ui.icons.updating,
+    --                 frame_idx
+    --             )
 
-                -- TODO: Throttle calls to render
-                -- TODO: Make a utility method in this class to render a grid position
-                -- and then throttle it as well
-                _self.grid:render_by_extmark(id, update_icon, row, 1)
+    --             -- TODO: Throttle calls to render
+    --             -- TODO: Make a utility method in this class to render a grid position
+    --             -- and then throttle it as well
+    --             _self.grid:render_by_extmark(id, update_icon, row, 1)
 
-                frame_idx = frame_idx + 1
-            end)
+    --             frame_idx = frame_idx + 1
+    --         end)
 
-            local on_finish_install = vim.schedule_wrap(function()
-                parcel:set_state("installed")
-                _self.grid:render_by_extmark(id, config.ui.icons.installed, row, 1)
-            end)
+    --         local on_finish_install = vim.schedule_wrap(function()
+    --             parcel:set_state("installed")
+    --             _self.grid:render_by_extmark(id, config.ui.icons.installed, row, 1)
+    --         end)
 
-            local timer = uv.new_timer()
-            parcel:set_state("updating")
+    --         local timer = uv.new_timer()
+    --         parcel:set_state("updating")
 
-            timer:start(0, 100, function()
-                animate_icon()
+    --         timer:start(0, 100, function()
+    --             animate_icon()
 
-                if frame_idx > 20 then
-                    on_finish_install()
-                    timer:stop()
-                end
-            end)
+    --             if frame_idx > 20 then
+    --                 on_finish_install()
+    --                 timer:stop()
+    --             end
+    --         end)
 
-            -- actions.install.run({ parcel }, {
-            --     callback = function()
-            --         if parcel._installed then
-            --             _self.grid:set_cell(config.ui.icons[parcel:state()], parcel._grid_row, 1)
-            --             _self.grid:render_by_extmark(parcel._highlight.id)
-            --         end
-            --     end
-            -- })
-        end
-    end)
+    --         -- actions.install.run({ parcel }, {
+    --         --     callback = function()
+    --         --         if parcel._installed then
+    --         --             _self.grid:set_cell(config.ui.icons[parcel:state()], parcel._grid_row, 1)
+    --         --             _self.grid:render_by_extmark(parcel._highlight.id)
+    --         --         end
+    --         --     end
+    --         -- })
+    --     end
+    -- end)
 
     -- self:on_key(mappings.explain, function(parcel, row_idx)
     --     if parcel then
@@ -212,49 +211,49 @@ function Overview:init(options)
         }
     )
 
-    self.grid = Grid:new({ buffer = self.buffer, lnum = self.parcel_row_offset })
+    self.grid = Grid:new({
+        buffer = self.buffer,
+        lnum = self.parcel_row_offset,
+    })
 end
 
 ---@param parcel parcel.Parcel
 function Overview:toggle_expand(parcel)
+    ---@diagnostic disable-next-line: invisible
     local id = parcel._highlight.id
+    ---@diagnostic disable-next-line: invisible
     local lnum = parcel._highlight.lnum
-    local expanded = self.expanded[id]
 
-    expanded.visible = not expanded.visible
+    local section = self.sections[id]
+    section.visible = not section.visible
 
-    if expanded.visible then
-        expanded.section:render(self.buffer, lnum + 1)
+    if section.visible then
+        section.section:render(self.buffer, lnum + 1)
     else
-        expanded.section:clear(self.buffer, lnum + 1)
+        section.section:clear(self.buffer, lnum + 1)
     end
 
     -- Set cursor position to the toggled parcel's row
     vim.api.nvim_win_set_cursor(self.win_id, { lnum, 0 })
 end
 
+---@param parcel parcel.Parcel
+---@return table[]
 function Overview:create_parcel_columns(parcel)
-    local state_highlight = {
-        installed = "Conditional",
-        not_installed = "ErrorMsg",
-        updating = "WarningMsg",
-        updates_available = "",
-        loaded = "diffAdded",
-    }
-
+    local highlights = config.ui.highlights
     local _icons = config.ui.icons
-    local source_type_icon = _icons[parcel:source()] or _icons.unknown_source
+    local source_type_icon = _icons.sources[parcel:source()] or _icons.sources.unknown_source
 
     return {
         {
             _icons[parcel:state()],
             rpad = 2,
-            hl = state_highlight[parcel:state()],
+            hl = highlights[parcel:state()],
         },
         {
             _icons.parcel,
             rpad = 2,
-            hl = "Special",
+            hl = highlights.parcel,
         },
         {
             source_type_icon,
@@ -276,21 +275,26 @@ function Overview:create_parcel_columns(parcel)
         {
             parcel:pinned(),
             icon = _icons.pinned,
-            hl = "Identifier",
+            hl = highlights.pinned,
             rpad = 1,
         },
         {
             parcel:local_development(),
             icon = _icons.dev,
-            hl = "Identifier",
+            hl = highlights.dev,
         },
     }
 end
 
+---@param lnum integer
 function Overview:set_parcel_row(lnum)
     local parcel = self:get_parcel_at_cursor(lnum)
 
-    self.grid.row(lnum):set_columns(self:create_parcel_columns(parcel))
+    if not parcel then
+        return
+    end
+
+    self.grid:row(lnum):set_columns(self:create_parcel_columns(parcel))
 end
 
 --- Update the overview
@@ -312,7 +316,10 @@ function Overview:update(lnum)
         return
     end
 
-    self.grid = Grid:new({ buffer = self.buffer, lnum = self.parcel_row_offset })
+    self.grid = Grid:new({
+        buffer = self.buffer,
+        lnum = self.parcel_row_offset,
+    })
 
     for idx, parcel in ipairs(self.parcels) do
         self.grid:add_row(self:create_parcel_columns(parcel))
@@ -322,18 +329,22 @@ function Overview:update(lnum)
     self.lines:add(self.grid)
 end
 
-function Overview:format_text(text)
+---@param text string
+---@param placeholder string?
+---@return string
+function Overview:format_text(text, placeholder)
     if text ~= nil and #text > 0 then
         return text
     else
-        return "———"
+        return placeholder or "———"
     end
 end
 
 function Overview:add_git_subsection(parcel, section)
-    local icons = config.ui.icons
-    local section_bullet = icons.section_bullet
+    local _icons = config.ui.icons
+    local section_bullet = _icons.section_bullet
 
+    -- TODO: Let sources set this themselves?
     if parcel:version() then
         section
             :add(
@@ -375,23 +386,27 @@ end
 ---@param parcel parcel.Parcel
 function Overview:add_subsection(parcel, offset)
     -- local indent = self.grid:column_offset(2)
-    local icons = config.ui.icons
-    local section_sep = icons.section_sep
-    local section_bullet = icons.section_bullet
-    local section_double_bullet = icons.section_sep .. icons.dash
+    local _icons = config.ui.icons
+    -- local section_sep = _icons.section_sep
+    local section_bullet = _icons.section_bullet
+    local section_double_bullet = _icons.section_sep .. _icons.dash
 
     local section = Lines:new({
         offset = offset,
         indent = 2, -- indent,
         -- TODO: Highlight sep
-        sep = section_sep .. " ",
+        -- sep = section_sep .. " ",
     })
 
-    if parcel:state() ~= "installed" then
+    if parcel:state() ~= parcel.State.Installed then
         section
             :newline()
             :add("Not installed", "ErrorMsg", { sep = section_bullet })
             :newline()
+
+        section
+            :newline()
+            :add("")
 
         return section
     end
@@ -432,13 +447,13 @@ function Overview:add_subsection(parcel, offset)
     local dep_grid = Grid:new({
         buffer = self.buffer,
         indent = 1,--indent,
-        sep = icons.section_sep .. " ",
+        sep = _icons.section_sep .. " ",
     })
 
     if deps then
         for _, dep in ipairs(deps) do
             dep_grid:add_row({
-                { icons.parcel .. " " .. (dep.name or dep.source), min_pad = 5 },
+                { _icons.parcel .. " " .. (dep.name or dep.source), min_pad = 5 },
                 { dep.version, align = "right" },
             })
         end
@@ -463,12 +478,12 @@ function Overview:add_subsection(parcel, offset)
 
     local ext_dep_grid = Grid:new({
         indent = 1,--indent,
-        sep = icons.section_sep .. " ",
+        sep = _icons.section_sep .. " ",
     })
 
     for _, dep in ipairs(ext_deps) do
         ext_dep_grid:add_row({
-            { icons.external_dependency .. " " .. dep.name, min_pad = 5 },
+            { _icons.external_dependency .. " " .. dep.name, min_pad = 5 },
             { dep.version, align = "right" },
         })
     end
@@ -486,7 +501,9 @@ function Overview:get_parcel_at_cursor(lnum)
     end
 
     local parcel = self.parcels_by_extmark[highlight.id]
+    ---@diagnostic disable-next-line: invisible
     parcel._highlight = highlight
+    ---@diagnostic disable-next-line: invisible
     parcel._highlight.lnum = highlight.lnum
 
     return parcel
@@ -518,8 +535,8 @@ function Overview:update_extmarks()
         parcel._highlight = extmark
         self.parcels_by_extmark[id] = parcel
 
-        if not self.expanded[id] then
-            self.expanded[id] = {
+        if not self.sections[id] then
+            self.sections[id] = {
                 visible = false,
                 section = self:add_subsection(parcel, self.parcel_row_offset + idx - 1),
             }

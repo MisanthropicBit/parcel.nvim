@@ -15,6 +15,11 @@ local function install_parcel(parcel)
         parcel:set_state(parcel.State.Updating)
 
         local result = source.install(parcel)
+
+        if parcel:state() == parcel.State.Updating then
+            parcel:set_state(parcel.State.Installed)
+        end
+
         -- vim.print(result)
         -- local state = result and parcel.State.Installed or parcel.State.Failed
 
@@ -36,7 +41,6 @@ return function(parcels)
         ---@type parcel.Task[]
         local tasks = vim.tbl_map(install_parcel, parcels)
         local results = Task.wait_all(tasks, { concurrency = config.concurrency })
-        vim.print(vim.inspect({ "wait_all results", results }))
 
         -- notify.log.info("Finished installing %d parcels", #parcels)
 

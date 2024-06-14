@@ -5,7 +5,7 @@ local uv = vim.loop
 ---@class parcel.ProcessOptions
 ---@field args string[]?
 ---@field cwd string?
----@field on_exit fun(ok: boolean, result: any, code: integer, signal: integer?)
+---@field on_exit fun(result: any, code: integer, signal: integer?)
 ---@field stdin uv_stream_t?
 ---@field timeout integer?
 
@@ -57,8 +57,8 @@ function process.spawn(command, options)
 
         local on_exit = _options.on_exit
 
-        if on_exit and type(on_exit) == "function" then
-            on_exit(code == 0, result, code, signal)
+        if type(on_exit) == "function" then
+            on_exit(result, code, signal)
         end
     end)
 

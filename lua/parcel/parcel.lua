@@ -1,4 +1,5 @@
 local config = require("parcel.config")
+local utils = require("parcel.utils")
 -- local version = require("parcel.version")
 
 ---@class parcel.ParcelError
@@ -50,9 +51,12 @@ function Parcel:new(args)
     --     parcel.version = vim.version.parse(parcel.version)
     -- end
 
+    local spec = args.spec or {}
+
     return setmetatable(vim.tbl_extend("force", parcel_defaults, {
         _highlight = {},
-        _spec = args.spec or {}
+        _spec = spec,
+        _cleaned_name = nil,
     }), Parcel)
 end
 
@@ -105,6 +109,14 @@ function Parcel:name()
     return self.packspec and self.packspec.package or self._spec.name
 end
 
+function Parcel:clean_name()
+    if not self._spec:validated() then
+        return nil
+    end
+
+    return utils.clean_parcel_name(self._spec:name())
+end
+    
 function Parcel:pinned()
     return self._pinned
 end

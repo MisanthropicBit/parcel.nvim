@@ -17,8 +17,11 @@ local sources = {}
 ---@class parcel.Source
 ---@field name fun(): string
 ---@field configuration_keys fun(): table<string, parcel.SourceConfigKey>
+---@field validate fun(parcel: parcel.Parcel, keys: table<string, any>): boolean
 ---@field supported async fun(): parcel.SourceSupport
 ---@field install async fun(parcel: parcel.Parcel, context: table?)
+---@field update async fun(parcel: parcel.Parcel, context: table?)
+---@field uninstall async fun(parcel: parcel.Parcel, context: table?)
 
 ---@class parcel.SourceConfigKey
 ---@field name string
@@ -63,14 +66,36 @@ function sources.common_configuration_keys()
     }
 end
 
----@param source string | parcel.SourceType
+---@param source_type string | parcel.SourceType
 ---@return parcel.Source?
-function sources.get_source(source)
-    if not sources.Source[source] then
-        error(("Source '%s' does not exist"):format(source))
+function sources.get_source(source_type)
+    if not sources.Source[source_type] then
+        error(("Source '%s' does not exist"):format(source_type))
     end
 
-    return require("parcel.sources." .. source)
+    return require("parcel.sources." .. source_type)
+end
+
+---@async
+---@param source_type string | parcel.SourceType
+---@return boolean
+---@return parcel.Source | string?
+function sources.resolve_source(source_type)
+    local ok, source = pcall(sources.get_source, source_type)
+
+    if not ok then
+        return ok, source
+    end
+
+    ---@cast source parcel.Source
+
+    local supported, reason = source.supported()
+
+    if not supported then
+        return false, reason
+    end
+
+    return true, source
 end
 
 return sources

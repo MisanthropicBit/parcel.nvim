@@ -17,9 +17,13 @@ local function _notify(message, level, ...)
 
     -- Notification may be overridden by the user and call vimscript functions or
     -- functions that are not safe to call in async code
-    vim.schedule(function()
+    if vim.in_fast_event() then
+        vim.schedule(function()
+            vim.notify(message:format(args), level)
+        end)
+    else
         vim.notify(message:format(args), level)
-    end)
+    end
 end
 
 notify.log = {}

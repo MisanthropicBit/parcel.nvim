@@ -2,8 +2,10 @@ local sources = require("parcel.sources")
 
 --- A user specification of a parcel as passed to the setup function
 ---@class parcel.Spec
----@field name string name of the spec
----@field _source string source type
+---@field private _name string name of the spec
+---@field private _source string source type
+---@field private _raw_spec table
+---@field private _validated boolean
 ---@field branch? string optional branch
 ---@field version? string optional verison
 ---@field tag? string optional tag (may be a version too)
@@ -14,7 +16,7 @@ local sources = require("parcel.sources")
 ---@field url? string
 ---@field _errors string[]
 local Spec = {
-    name = "",
+    _name = "",
     pinned = false,
     disabled = false,
     dev = false,
@@ -27,11 +29,16 @@ function Spec:new(raw_spec, source)
     local spec_name = type(raw_spec) == "string" and raw_spec or raw_spec[1]
 
     return setmetatable({
-        name = spec_name,
+        _name = spec_name,
         _source = source,
         _raw_spec = raw_spec,
         _errors = {},
+        _validated = false,
     }, Spec)
+end
+
+function Spec:name()
+    return self._name
 end
 
 ---@return string[]
@@ -39,15 +46,28 @@ function Spec:errors()
     return self._errors
 end
 
-function Spec:push_error(err, ...)
-    table.insert(self._errors, err:format(...))
+---@param message string
+---@param context table?
+---@param ... unknown
+function Spec:push_error(message, context, ...)
+    table.insert(self._errors, {
+        message = message:format(...),
+        context = context,
+    })
 end
 
+---@return boolean
+function Spec:validated()
+    return self._validated
+end
+
+---@return boolean
+---@return string[]?
 function Spec:validate()
     local ok, source = pcall(sources.get_source, self._source)
 
     if not ok then
-        self:push_error("Source '%s' is not supported", self._source)
+        self:push_error("Source '%s' is not supported", nil, self._source)
         return false
     end
 
@@ -60,25 +80,67 @@ function Spec:validate()
     end
 
     if type(raw_spec) ~= "table" then
-        self:push_error("Expected string or table, got '%s", type(raw_spec))
-        return false
+        self:push_error("Expected string or table, got '%s", nil, type(raw_spec))
+        return false, self:errors()
     end
 
     if type(raw_spec[1]) ~= "string" then
         self:push_error("Expected parcel name as first table element")
-        return false
+        return false, self:errors()
     end
 
     local config_keys = source.configuration_keys()
 
-    -- for key, _ in pairs(raw_spec) do
-    --     if key ~= 1 then
-    --         if not vim.tbl_contains(config_keys, key) then
-    --             self:push_error("Unknown configuration key '%s'", key)
-    --             return false
-    --         end
-    --     end
-    -- end
+    -- Check each key and value in the raw user spec
+    for key, value in pairs(raw_spec) do
+        if key == 1 then
+            goto continue
+        end
+
+        if not vim.tbl_contains(config_keys, key) then
+            self:push_error(
+                "Unknown configuration key '%s' for source '%s",
+                nil,
+                key,
+                source.name
+            )
+        else
+            local key_spec = config_keys[key]
+
+            if key_spec.expected_types then
+                if not vim.tbl_contains(key_spec.expected_types, value) then
+                    self:push_error(
+                        "Expected type(s): %s for key %s but got type %s",
+                        nil,
+                        table.concat(key_spec.expected_types, ", "),
+                        type(value)
+                    )
+                end
+            end
+
+            if key_spec.validator then
+                local valid, err = key_spec.validator(value)
+
+                if not valid then
+                    self:push_error("Key %s failed validation: %s", nil, key, err)
+                end
+            end
+        end
+
+        :: continue ::
+    end
+
+    -- Check required keys
+    for key, value in pairs(config_keys) do
+        if value.required and not raw_spec[key] == nil then
+            self:push_error("Missing required key %s in spec", nil, key)
+        end
+    end
+
+    local errors = self:errors()
+    self._validated = #errors == 0
+
+    return #errors == 0, self:errors()
 end
 
 function Spec:get(key)

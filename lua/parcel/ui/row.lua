@@ -1,22 +1,21 @@
 ---@class parcel.Row
 local Row = {}
 
+Row.__index = Row
+
 local Column = require("parcel.ui.column")
 
 function Row:new()
-    self.__index = self
-
-    local row = setmetatable({
+    return setmetatable({
         _columns = {},
-    }, self)
-
-    return row
+    }, Row)
 end
 
 function Row.is_row(row)
     return getmetatable(row) == Row
 end
 
+---@param columns table[]
 function Row:set_columns(columns)
     self._columns = vim.tbl_map(function(options)
         return Column:new(options[1], options)

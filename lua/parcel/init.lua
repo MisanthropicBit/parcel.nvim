@@ -16,7 +16,7 @@ local utils = require("parcel.utils")
 
 ---@class parcel.SetupConfiguration
 ---@field options parcel.Config
----@field sources table<string, parcel.Spec>
+---@field sources table<parcel.SourceType, parcel.Spec[]>
 
 local function resolve_specs(source_name, specs)
     local ok, source = pcall(sources.get_source, source_name)
@@ -72,14 +72,7 @@ function parcel.setup(configuration)
         return
     end
 
-    for source_name, specs in pairs(configuration.sources) do
-        resolve_specs(source_name, specs)
-    end
-
-    if #state.parcels() > 0 then -- and config.autoinstall == true then
-        log.info("Autoinstalling parcels")
-        actions.install_missing(state.parcels())
-    end
+    actions.update_parcels(configuration.sources)
 end
 
 return parcel

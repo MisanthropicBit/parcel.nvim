@@ -4,6 +4,7 @@ local dev_source = {}
 local config = require("parcel.config")
 local async = require("parcel.async")
 local Path = require("parcel.path")
+local Task = require("parcel.tasks")
 
 function dev_source.name()
     return "dev"
@@ -24,11 +25,9 @@ end
 function dev_source.install(parcel)
     local path = parcel:name()
     local normpath = vim.fs.normalize(path)
-    -- FIX: err might be removed in tasks
     local err, stat = async.fs.stat(normpath)
-    vim.print(vim.inspect({ "dev", err, stat }))
 
-    if stat ~= nil then
+    if err ~= nil then
         parcel:push_error("Unable to stat local parcel", {
             path = normpath,
         })
@@ -50,9 +49,16 @@ function dev_source.install(parcel)
     --     return
     -- end
 
-    vim.schedule(function()
-        vim.opt.runtimepath:append(path)
-    end)
+    async.opt.runtimepath:append(path)
+end
+
+
+function dev_source.update(parcel, context)
+    -- Noop
+end
+
+function dev_source.uninstall(parcel, context)
+    -- TODO: Remove from rtp and unload
 end
 
 return dev_source

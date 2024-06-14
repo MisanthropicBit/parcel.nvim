@@ -1,33 +1,47 @@
 local state = {}
 
+local async = require("parcel.async")
 local config = require("parcel.config")
 local Path = require("parcel.path")
 local sources = require("parcel.sources")
+local Task = require("parcel.tasks")
 
----@type parcel.Parcel[]
+---@type table<parcel.SourceType, table<string, parcel.Parcel>>
 local parcels = {}
 
-function state.get_installed_parcels()
+---@async
+---@param specs any
+---@return table<parcel.SourceType, parcel.Parcel[]>
+function state.get_installed_parcels(specs)
     local installed = {}
 
     for source, _ in pairs(sources.Source) do
         installed[source] = {}
     end
 
-    for source, _ in pairs(sources.Source) do
-        local source_path = Path:new(config.dir, "parcel", source)
-        local dir_stream = vim.loop.fs_opendir(source_path:absolute())
+    for source_name, _ in pairs(sources.Source) do
+        if source_name == sources.Source.dev then
+            -- TODO: Instead use the specs to check if the local dir exists?
+            goto continue
+        end
+
+        local source_path = Path:new(config.dir, "parcel", source_name)
+        local dir_stream = async.fs.opendir(source_path:absolute())
 
         if not dir_stream then
-            -- TODO: Handle failure
-            -- TODO: Use async version
-            vim.fn.mkdir(source_path:absolute(), "p")
-            -- vim.loop.fs_mkdir(source_path:absolute(), 438)
-            dir_stream = vim.loop.fs_opendir(source_path:absolute())
+            local abs_path = source_path:absolute()
+
+            async.fs.mkdirs(abs_path, "p", 438)
+            dir_stream = async.fs.opendir(abs_path)
+
+            -- TODO: Handle failure gracefully
+            if not dir_stream then
+                error(("Failed to open directory stream: %s"):format(dir_stream))
+            end
         end
 
         ----@type uv.aliases.fs_readdir_entries
-        local entries, err = vim.loop.fs_readdir(dir_stream)
+        local entries, err = async.fs.readdir(dir_stream)
 
         if not entries then
             goto continue
@@ -36,14 +50,14 @@ function state.get_installed_parcels()
         while #entries > 0 do
             for _, entry in ipairs(entries) do
                 if entry.type == "directory" then
-                    installed[source][entry.name] = true
+                    installed[source_name][entry.name] = true
                 end
             end
 
-            entries, err = vim.loop.fs_readdir(dir_stream)
+            entries, err = async.fs.readdir(dir_stream)
 
             if entries == nil then
-                vim.loop.fs_closedir(dir_stream)
+                async.fs.closedir(dir_stream)
                 break
             end
         end
@@ -54,38 +68,79 @@ function state.get_installed_parcels()
     return installed
 end
 
+---@param parcel parcel.Parcel
 function state.add_parcel(parcel)
-    table.insert(parcels, parcel)
+    local source_name = parcel:source()
+
+    if not parcels[source_name] then
+        parcels[source_name] = {}
+    end
+
+    parcels[source_name][parcel:name()] = parcel
 end
 
+---@param parcel parcel.Parcel
+function state.remove_parcel(parcel)
+    local name = parcel:name()
+    local source_name = parcel:source()
+
+    if not parcels[source_name] or not parcels[source_name][name] then
+        return
+    end
+
+    parcels[source_name][name] = nil
+end
+
+---@return parcel.Parcel[]
 function state.parcels()
-    return parcels
+    local _parcels = {}
+
+    for source_name, entries in pairs(parcels) do
+        vim.list_extend(_parcels, vim.tbl_values(entries))
+    end
+
+    return _parcels
 end
 
--- function state.read()
---     local path = Path.join(stdpath("data"), "parcel-state.json")
---     local fd = assert(vim.loop.fs_open(path, "r", 438))
---     local stat = assert(vim.loop.fs_fstat(fd))
---     local data = assert(vim.loop.fs_read(fd, stat.size, 0))
---     local ok = vim.loop.fs_read(fd, json)
+---@param source_name string
+---@param name string
+---@return parcel.Parcel?
+function state.get_parcel(source_name, name)
+    return parcels[source_name] and parcels[source_name][name]
+end
 
---     if not ok then
---         log.error("Failed to write state")
---     end
+---@param source_name string
+---@param name string
+---@return boolean
+function state.has_parcel(source_name, name)
+    return state.get_parcel(source_name, name) ~= nil
+end
 
---     assert(vim.loop.fs_close(fd))
+function state.read()
+    local path = Path.join(vim.fn.stdpath("data"), "parcel.state.json")
 
---     return data
--- end
+    local fd = async.fs.open(path, "r", 438)
+    local stat = async.fs.fstat(fd)
+    local data = async.fs.read(fd, stat.size, 0)
+    local json = vim.json.decode(data, {
+        object = true,
+        array = true,
+    })
 
+    async.fs.close(fd)
+
+    return data
+end
+
+-- TODO: Lockfile format depends on source type
 -- function state.write(parcels)
---     local _state = vim.tbl_map(function(parcel)
+--     local parcel_state = vim.tbl_map(function(parcel)
 --         return {
 --             state = parcel:state(),
 --         }
 --     end, parcels)
 
---     local json = vim.json.encode(_state)
+--     local json = vim.json.encode(parcel_state)
 --     local path = Path.join(stdpath("data"), "parcel-state.json")
 --     local fd = assert(vim.loop.fs_open(path, "w", 438))
 --     local ok = vim.loop.fs_write(fd, json)

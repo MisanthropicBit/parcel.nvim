@@ -58,8 +58,8 @@ function Logger:new(filename, options)
                 }, " "),
             }
 
-            local format = select(2, ...)
-            table.insert(parts, format:format(select(3, ...)))
+            local format = select(1, ...)
+            table.insert(parts, format:format(select(2, ...)))
 
             -- for i = 1, argc do
             --     local arg = select(i, ...)

@@ -14,7 +14,6 @@ return function(parcels)
         local missing_parcels = vim.tbl_filter(function(parcel)
             return parcel:state() == Parcel.State.NotInstalled -- and #parcel:spec():errors() == 0
         end, parcels)
-        vim.print(vim.inspect({ "missing_parcels", #missing_parcels }))
 
         if #missing_parcels > 0 then
             local installed_parcels = state.get_installed_parcels()
@@ -28,22 +27,16 @@ return function(parcels)
                 end
             end
 
-            vim.print(vim.inspect({ "parcels_to_install", #parcels_to_install }))
             local task = install(parcels_to_install)
             local results = task:wait()
-            vim.print(vim.inspect({ "task:wait", results }))
             -- log.info("Installed %d/%d parcel(s)", #results, #missing_parcels)
 
-            vim.print("soijfri")
             for _, parcel in ipairs(parcels_to_install) do
-                vim.print("soijfri")
                 if #parcel:errors() > 0 then
-                    vim.print(vim.inspect(parcel:errors()))
                     goto continue
                 end
 
                 local config_func = parcel:spec():get("config")
-                vim.print(vim.inspect({ "config_func", config_func }))
 
                 if config_func then
                     if type(config_func) == "string" then
@@ -55,7 +48,6 @@ return function(parcels)
                     end
 
                     local ok, err = pcall(config_func)
-                    vim.print(vim.inspect({ "config", ok, err }))
 
                     if not ok then
                         notify.log.error(
