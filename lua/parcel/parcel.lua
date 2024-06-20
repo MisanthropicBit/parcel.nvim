@@ -1,5 +1,6 @@
 local config = require("parcel.config")
 local utils = require("parcel.utils")
+local Path = require("parcel.path")
 -- local version = require("parcel.version")
 
 ---@class parcel.ParcelError
@@ -19,7 +20,7 @@ local utils = require("parcel.utils")
 ---@field private _source? string
 ---@field private _description? string
 ---@field private _external_dependencies? parcel.ExternalDependency[]
----@field private _highlight table
+---@field private _highlight parcel.Highlight
 ---@field private _errors parcel.ParcelError[]
 local Parcel = {
     issues_url = nil,
@@ -106,7 +107,7 @@ end
 
 ---@return string
 function Parcel:name()
-    return self.packspec and self.packspec.package or self._spec.name
+    return self.packspec and self.packspec.package or self._spec:name()
 end
 
 function Parcel:clean_name()
@@ -114,7 +115,21 @@ function Parcel:clean_name()
         return nil
     end
 
-    return utils.clean_parcel_name(self._spec:name())
+    local name = self._spec:name()
+
+    if self._spec:source_name() == "dev" then
+        name = vim.fn.fnamemodify(name, ":t")
+    end
+
+    return utils.clean_parcel_name(name)
+end
+
+function Parcel:path()
+    if self._spec:source_name() == "dev" then
+        return self:name()
+    end
+
+    return Path.join(config.path, self:source_name(), self:name())
 end
     
 function Parcel:pinned()
@@ -133,12 +148,8 @@ function Parcel:toggle_disabled()
     self._disabled = not self._disabled
 end
 
-function Parcel:local_development()
-    return self._dev
-end
-
-function Parcel:source()
-    return self.packspec and self.packspec.repository.type or self._spec._source
+function Parcel:source_name()
+    return self.packspec and self.packspec.repository.type or self._spec:source_name()
 end
 
 function Parcel:version()

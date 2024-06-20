@@ -1,7 +1,11 @@
 local constants = {}
 
+local Path = require("parcel.path")
+
+local lockfile_path = Path.join(vim.fn.stdpath("data"), "parcel.lock.json")
+
 function constants.lockfile()
-    return "parcel.lock.json"
+    return lockfile_path
 end
 
 function constants.state_file()

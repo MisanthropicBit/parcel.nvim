@@ -9,6 +9,10 @@ local uv = vim.loop
 ---@field stdin uv_stream_t?
 ---@field timeout integer?
 
+---@class parcel.ProcessResult
+---@field stdout string[]
+---@field stderr string[]
+
 local signals = {
     sigint = "sigint",
 }
@@ -31,12 +35,14 @@ function process.spawn(command, options)
     local stderr = uv.new_pipe()
     local handle = nil
     local pid = nil
+    local _options = options or {}
+    local stdin
+
+    ---@type parcel.ProcessResult
     local result = {
         stdout = {},
         stderr = {},
     }
-    local _options = options or {}
-    local stdin
 
     if _options.stdin then
         stdin = uv.new_pipe()

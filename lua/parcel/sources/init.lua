@@ -1,5 +1,7 @@
 local sources = {}
 
+local validators = require("parcel.sources.validators")
+
 ---@class parcel.SourceNoSupport
 ---@field supported false
 ---@field reason string
@@ -25,7 +27,7 @@ local sources = {}
 
 ---@class parcel.SourceConfigKey
 ---@field name string
----@field expected_types (string | fun(key: any): boolean)[]
+---@field expected_types string[]
 ---@field required boolean?
 ---@field validator fun(value: any)
 
@@ -39,29 +41,30 @@ sources.Source = {
 ---@return table<string, parcel.SourceConfigKey>
 function sources.common_configuration_keys()
     return {
-        {
+        version = {
             name = "version",
             expected_types = { "string" }, -- TODO: Add version validation
         },
-        {
+        pin = {
             name = "pin",
             expected_types = { "boolean" },
         },
-        {
+        disable = {
             name = "disable",
             expected_types = { "boolean" }
         },
-        {
+        condition = {
             name = "condition",
             expected_types = { "function" },
         },
-        {
+        dependencies = {
             name = "dependencies",
-            expected_types = { vim.tbl_islist },
+            expected_types = { "table" },
+            validator = validators.is_list,
         },
-        {
+        config = {
             name = "config",
-            expected_types = { "function" },
+            expected_types = { "function", "string" },
         },
     }
 end

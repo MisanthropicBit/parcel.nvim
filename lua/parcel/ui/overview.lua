@@ -1,11 +1,11 @@
 local actions = require("parcel.actions")
+local compat = require("parcel.compat")
 local config = require("parcel.config")
 local icons = require("parcel.icons")
 local Grid = require("parcel.ui.grid")
 local Lines = require("parcel.ui.lines")
 local async_utils = require("parcel.tasks.async_utils")
-
-local uv = vim.loop
+local sources = require("parcel.sources")
 
 ---@type table<string, any>
 local window_options = {
@@ -28,11 +28,19 @@ local buffer_options = {
     filetype = "parcel-overview",
 }
 
+---@class parcel.Section
+---@field visible boolean
+---@field section parcel.Lines
+
+---@class parcel.OverviewOptions
+---@field float boolean? open the overview in a float if true
+---@field mods string? any split modifiers such as "vertical"
+
 ---@class parcel.Overview
 ---@field lines parcel.Lines
 ---@field parcels_by_extmark table<integer, parcel.Parcel>
 ---@field selected table<integer, boolean>
----@field sections table<integer, table>
+---@field sections table<integer, parcel.Section>
 ---@field parcels parcel.Parcel[]
 local Overview = {}
 
@@ -47,16 +55,19 @@ function Overview:new(parcels)
         selected = {},
         sections = {},
         parcels = parcels or {},
+        timer = nil,
     }, Overview)
 end
 
----@param options table
-function Overview:init(options)
-    if options.float then
+---@param _options parcel.OverviewOptions?
+function Overview:init(_options)
+    local _options = _options or {}
+
+    if _options.float then
         self.buffer = vim.api.nvim_create_buf(false, false)
         self.win_id = vim.api.nvim_open_win(self.buffer, true, {})
     else
-        vim.cmd((options.mods or "") .. " new")
+        vim.cmd((_options.mods or "") .. " new")
         self.buffer = vim.api.nvim_win_get_buf(0)
         self.win_id = vim.api.nvim_get_current_win()
     end
@@ -82,7 +93,7 @@ function Overview:init(options)
 
     self:on_key(mappings.disable, function(_self, parcel, row_idx)
         if parcel then
-            parcel:toggle_disabled()
+            -- loader:disable(parcel)
             _self:update(row_idx)
         end
     end)
@@ -217,6 +228,14 @@ function Overview:init(options)
     })
 end
 
+function Overview:notify(type, parcel)
+    -- TODO: Return if not visible
+
+    if not self.timer then
+        self.timer = compat.loop.new_timer()
+    end
+end
+
 ---@param parcel parcel.Parcel
 function Overview:toggle_expand(parcel)
     ---@diagnostic disable-next-line: invisible
@@ -340,47 +359,14 @@ function Overview:format_text(text, placeholder)
     end
 end
 
-function Overview:add_git_subsection(parcel, section)
+function Overview:add_source_section(parcel, section)
     local _icons = config.ui.icons
     local section_bullet = _icons.section_bullet
+    local source = sources.get_source(parcel:source())
 
-    -- TODO: Let sources set this themselves?
-    if parcel:version() then
-        section
-            :add(
-                "Version         ",
-                "Keyword", -- ParcelSectionVersion",
-                { sep = section_bullet }
-            )
-            :add(self:format_text(parcel:version()))
-            :newline()
-    end
+    ---@cast source -nil
 
-    if parcel:license() ~= nil and #parcel:license() > 0 then
-        section:add(
-                "License         ",
-                "Keyword", -- "ParcelSectionLicense",
-                { sep = section_bullet }
-            )
-            :add(self:format_text(parcel:license()))
-            :newline()
-    end
-
-    section
-        :add(
-            "Issues          ",
-            "Keyword", -- "ParcelSectionIssues",
-            { sep = section_bullet }
-        )
-        :add(parcel.issues_url)
-        :newline()
-        :add(
-            "Pull requests   ",
-            "Keyword", -- "ParcelSectionPulls",
-            { sep = section_bullet }
-        )
-        :add(parcel.pulls_url)
-        :newline()
+    source.write_section(parcel, section)
 end
 
 ---@param parcel parcel.Parcel
@@ -417,7 +403,7 @@ function Overview:add_subsection(parcel, offset)
         section:add(parcel:description()):newline():newline()
     end
 
-    Overview["add_" .. parcel.spec.source ..  "_subsection"](self, parcel, section)
+    self:add_source_section(parcel, section)
 
     section
         :add(
@@ -427,7 +413,6 @@ function Overview:add_subsection(parcel, offset)
         )
         :add(parcel:source())
         :newline()
-
 
     local deps = parcel:dependencies()
 
@@ -493,6 +478,8 @@ function Overview:add_subsection(parcel, offset)
     return section
 end
 
+---@param lnum integer
+---@return parcel.Parcel?
 function Overview:get_parcel_at_cursor(lnum)
     local highlight = self.grid:get_nearest_extmark(lnum)
 
@@ -509,10 +496,13 @@ function Overview:get_parcel_at_cursor(lnum)
     return parcel
 end
 
+---@param key string
+---@param callback fun(overview: parcel.Overview, parcel: parcel.Parcel, lnum: integer, col: integer)
 function Overview:on_key(key, callback)
     local wrapped = function()
         local lnum = vim.fn.line(".")
         local parcel = self:get_parcel_at_cursor(lnum)
+        ---@cast parcel -nil
 
         callback(self, parcel, lnum, vim.fn.col("."))
     end
@@ -532,6 +522,7 @@ function Overview:update_extmarks()
         local parcel = self.parcels[idx]
         local id = extmark.id
 
+        ---@diagnostic disable-next-line: invisible
         parcel._highlight = extmark
         self.parcels_by_extmark[id] = parcel
 

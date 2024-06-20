@@ -18,48 +18,6 @@ local utils = require("parcel.utils")
 ---@field options parcel.Config
 ---@field sources table<parcel.SourceType, parcel.Spec[]>
 
-local function resolve_specs(source_name, specs)
-    local ok, source = pcall(sources.get_source, source_name)
-
-    if not ok then
-        notify.log.error(source)
-        return
-    end
-
-    ---@cast source parcel.Source
-
-    local supported, reason = source.supported()
-
-    if not supported then
-        notify.log.error("Source '%s' is not supported: %s", source_name, reason)
-        return
-    end
-
-    log.info("Validating specs for source '%s'", source_name)
-
-    local spec_errors = 0
-
-    for _, raw_spec in ipairs(specs) do
-        local spec = Spec:new(raw_spec, source_name)
-        spec:validate()
-
-        if #spec:errors() > 0 then
-            spec_errors = spec_errors + #spec:errors()
-        end
-
-        -- TODO: Change config._parcels to state.parcels()
-        state.add_parcel(Parcel:new({ spec = spec }))
-    end
-
-    if spec_errors > 0 then
-        notify.log.error(
-            "Found %d parcel specification error(s) for source '%s'",
-            spec_errors,
-            source.name()
-        )
-    end
-end
-
 ---@param configuration parcel.SetupConfiguration
 function parcel.setup(configuration)
     -- TODO: Replace with validation from config module
@@ -71,6 +29,9 @@ function parcel.setup(configuration)
         notify.log.error("config.sources is not a table")
         return
     end
+
+    -- TODO: Perhaps don't use a global variable?
+    vim.g.parcel_loaded = true
 
     actions.update_parcels(configuration.sources)
 end

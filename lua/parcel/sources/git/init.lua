@@ -4,6 +4,7 @@ local git_source = {}
 local async = require("parcel.async")
 local config = require("parcel.config")
 local git = require("parcel.tasks.git")
+local log = require("parcel.log")
 local Path = require("parcel.path")
 
 local github_url_format = "https://www.github.com/%s.git"
@@ -11,6 +12,12 @@ local github_url_format = "https://www.github.com/%s.git"
 ---@param parcel parcel.Parcel
 local function url_from_parcel(parcel)
     return github_url_format:format(parcel:name())
+end
+
+---@param parcel parcel.Parcel
+---@return string
+local function get_git_directory(parcel)
+    return Path.join(config.path, parcel:source_name(), parcel:name())
 end
 
 ---@param commit_sha string
@@ -85,25 +92,94 @@ function git_source.supported()
     }
 end
 
+function git_source.write_section(parcel, section)
+    local section_bullet = config.ui.icons.section_bullet
+
+    if parcel:version() then
+        section
+            :add(
+                "Version         ",
+                "Keyword", -- ParcelSectionVersion",
+                { sep = section_bullet }
+            )
+            :add(parcel:version())
+            :newline()
+    end
+
+    if parcel:license() ~= nil and #parcel:license() > 0 then
+        section:add(
+                "License         ",
+                "Keyword", -- "ParcelSectionLicense",
+                { sep = section_bullet }
+            )
+            :add(parcel:license())
+            :newline()
+    end
+
+    section
+        :add(
+            "Issues          ",
+            "Keyword", -- "ParcelSectionIssues",
+            { sep = section_bullet }
+        )
+        :add(parcel.issues_url)
+        :newline()
+        :add(
+            "Pull requests   ",
+            "Keyword", -- "ParcelSectionPulls",
+            { sep = section_bullet }
+        )
+        :add(parcel.pulls_url)
+        :newline()
+end
+
 function git_source.install(parcel)
     local url = url_from_parcel(parcel)
     local spec = parcel:spec()
-    local dir = Path.join(config.path, parcel:source(), parcel:name())
+    local dir = get_git_directory(parcel)
     local options = {
-        branch = spec.branch,
-        tag = spec.tag,
-        -- commit = spec.commit,
+        branch = spec:get("branch"),
+        tag = spec:get("tag"),
+        commit = spec:get("commit"),
         dir = dir,
     }
 
     local ok, result = git.clone(url, options)
 
     if not ok then
-        parcel:push_error("Failed to clone repository", { url = url, err = result })
+        local args = { "Failed to clone repository", { url = url, err = result } }
+        parcel:push_error(unpack(args))
+        log.error(unpack(args))
         return
     end
 
     async.opt.runtimepath:append(dir)
+end
+
+function git_source.update(parcel, context)
+    local dir = get_git_directory(parcel)
+
+    -- TODO: Check that directory exists
+
+    local spec_diff = context.spec_diff
+
+    -- TODO: Handle different diff states
+    local options = {
+        branch = spec_diff.branch or nil,
+        commit = spec_diff.commit or nil,
+        tag = spec_diff.tag or nil,
+    }
+
+    local ok, result = git.checkout(dir, options)
+
+    if not ok then
+        local args = { "Failed to update git parcel", { err = result } }
+        parcel:push_error(unpack(args))
+        log.error(unpack(args))
+    end
+end
+
+function git_source.uninstall()
 end
 
 return git_source

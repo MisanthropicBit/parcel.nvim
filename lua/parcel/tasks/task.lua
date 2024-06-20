@@ -118,9 +118,9 @@ function Task.wrap(func, argc, options)
 
         if not is_main then
             -- Not in main coroutine, yield back to step function
-            local results = { coroutine.yield(func, argc, ...) }
+            local results = { coroutine.yield(argc, func, ...) }
 
-            return unpack(results) -- unpack(results, 2, table.maxn(results))
+            return unpack(results)
         else
             if options and options.async_only then
                 require_async_context("some")
@@ -259,7 +259,7 @@ function Task.new(func)
     return setmetatable({
         _id = get_next_task_id(),
         _func = func,
-        _coroutine = coroutine.create(func),
+        _coroutine = nil,
         _run_callback = nil,
         _wait_callback = nil,
         _start_time = nil,
@@ -303,6 +303,7 @@ end
 function Task:start(...)
     self:check_state()
     local step = nil
+    self._coroutine = coroutine.create(self._func)
     local thread = self:coroutine()
 
     local function callback(ok, result)
@@ -332,7 +333,7 @@ function Task:start(...)
         end
 
         local results = { coroutine.resume(thread, ...) }
-        local status, err_or_fn, nargs = unpack(results)
+        local status, nargs, err_or_fn = unpack(results)
 
         if not status then
             handle_callback(callback, nil, formatted_error(
@@ -439,14 +440,14 @@ end
 --- Return the elapsed time in milliseconds or the total duration of the task
 --- if done. Returns -1 if the task has not been started yet.
 ---@return number
-function Task:elapsed()
+function Task:elapsed_ms()
     if not self:started() then
         return -1
     end
 
     local end_time = self._end_time or vim.loop.hrtime()
 
-    return (end_time - self._start_time) / 1000
+    return (end_time - self._start_time) / 1000000
 end
 
 return Task

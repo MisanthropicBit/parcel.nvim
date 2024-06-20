@@ -37,8 +37,14 @@ function Spec:new(raw_spec, source)
     }, Spec)
 end
 
+---@return string
 function Spec:name()
     return self._name
+end
+
+---@return string
+function Spec:source_name()
+    return self._source
 end
 
 ---@return string[]
@@ -68,7 +74,7 @@ function Spec:validate()
 
     if not ok then
         self:push_error("Source '%s' is not supported", nil, self._source)
-        return false
+        return false, self:errors()
     end
 
     ---@cast source parcel.Source
@@ -76,7 +82,7 @@ function Spec:validate()
     local raw_spec = self._raw_spec
 
     if type(raw_spec) == "string" then
-        return true
+        return true, self:errors()
     end
 
     if type(raw_spec) ~= "table" then
@@ -89,7 +95,11 @@ function Spec:validate()
         return false, self:errors()
     end
 
-    local config_keys = source.configuration_keys()
+    local config_keys = vim.tbl_extend(
+        "force",
+        source.configuration_keys(),
+        sources.common_configuration_keys()
+    )
 
     -- Check each key and value in the raw user spec
     for key, value in pairs(raw_spec) do
@@ -97,22 +107,23 @@ function Spec:validate()
             goto continue
         end
 
-        if not vim.tbl_contains(config_keys, key) then
+        local key_spec = config_keys[key]
+
+        if key_spec == nil then
             self:push_error(
                 "Unknown configuration key '%s' for source '%s",
                 nil,
                 key,
-                source.name
+                source.name()
             )
         else
-            local key_spec = config_keys[key]
-
             if key_spec.expected_types then
-                if not vim.tbl_contains(key_spec.expected_types, value) then
+                if not vim.tbl_contains(key_spec.expected_types, type(value)) then
                     self:push_error(
-                        "Expected type(s): %s for key %s but got type %s",
+                        "Expected type(s) %s for key %s but got type %s",
                         nil,
                         table.concat(key_spec.expected_types, ", "),
+                        key,
                         type(value)
                     )
                 end

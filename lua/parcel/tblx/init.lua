@@ -1,7 +1,7 @@
 local tblx = {}
 
 ---@enum parcel.TableDiffState
-local TableDiffState = {
+tblx.TableDiffState = {
     Added = "Added",
     Changed = "Changed",
     Removed = "Removed",
@@ -19,17 +19,17 @@ function tblx.diff(table1, table2)
         local value2 = table2[key1]
 
         if value2 == nil then
-            diff[key1] = { TableDiffState.Removed, value1 }
+            diff[key1] = { tblx.TableDiffState.Removed, value1 }
         else
             if value2 ~= value1 then
-                diff[key1] = { TableDiffState.Changed, value1, value2 }
+                diff[key1] = { tblx.TableDiffState.Changed, value1, value2 }
             end
         end
     end
 
     for key, value in pairs(table2) do
         if table1[key] == nil then
-            diff[key] = { TableDiffState.Added, value }
+            diff[key] = { tblx.TableDiffState.Added, value }
         end
     end
 
