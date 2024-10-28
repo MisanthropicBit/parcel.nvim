@@ -1,0 +1,16 @@
+local utils = require("parcel.utils")
+
+describe("utils", function()
+    describe("clean_parcel_name", function()
+        it("cleans a parcel name", function()
+            assert.are.same(utils.clean_parcel_name("decipher.nvim"), "decipher")
+            assert.are.same(utils.clean_parcel_name("  decipher.nvim  "), "decipher")
+            assert.are.same(utils.clean_parcel_name("decipher.vim"), "decipher")
+            assert.are.same(utils.clean_parcel_name("vim-window-yank"), "window-yank")
+            assert.are.same(utils.clean_parcel_name([[ vim-window-yank
+]]), "window-yank")
+            assert.are.same(utils.clean_parcel_name("	nvim-dap	"), "dap")
+            assert.are.same(utils.clean_parcel_name("nvim-dap"), "dap")
+        end)
+    end)
+end)

@@ -1,0 +1,11 @@
+local str = require("parcel.utils.str")
+
+describe("utils.str", function()
+    describe("titlecase", function()
+        it("titlecases a string", function()
+            assert.are.same(str.titlecase("title"), "Title")
+            assert.are.same(str.titlecase("Title"), "Title")
+            assert.are.same(str.titlecase(""), "")
+        end)
+    end)
+end)
