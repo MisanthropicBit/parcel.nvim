@@ -31,11 +31,11 @@ Parcel.__index = Parcel
 
 ---@enum parcel.State
 Parcel.State = {
-    Installed = "Installed",
-    NotInstalled = "NotInstalled",
-    Updating = "Updating",
-    UpdatesAvailable = "UpdatesAvailable",
-    Failed = "Failed",
+    Installed = "installed",
+    NotInstalled = "not_installed",
+    Updating = "updating",
+    UpdatesAvailable = "updates_available",
+    Failed = "failed",
 }
 
 ---@type parcel.Parcel
@@ -44,7 +44,6 @@ local parcel_defaults = {
     issues_url = nil,
     pulls_url = nil,
     _state = Parcel.State.NotInstalled,
-    _errors = {},
 }
 
 function Parcel:new(args)
@@ -58,6 +57,7 @@ function Parcel:new(args)
         _highlight = {},
         _spec = spec,
         _cleaned_name = nil,
+        _errors = {},
     }), Parcel)
 end
 
@@ -121,6 +121,7 @@ function Parcel:clean_name()
         name = vim.fn.fnamemodify(name, ":t")
     end
 
+    -- TODO: Doesn't work for szw/vim-maximizer
     return utils.clean_parcel_name(name)
 end
 
@@ -131,7 +132,7 @@ function Parcel:path()
 
     return Path.join(config.path, self:source_name(), self:name())
 end
-    
+
 function Parcel:pinned()
     return self._pinned
 end

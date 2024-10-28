@@ -68,14 +68,12 @@ local subcommands = {
     clean = true,
     update = true,
     selfupdate = true,
+    prune = true,
 }
 
 local function complete()
     return vim.tbl_keys(subcommands)
 end
-
----@type parcel.Overview?
-local overview
 
 local function run_command(options)
     local args = options.fargs
@@ -91,14 +89,10 @@ local function run_command(options)
             notify.warn("no such subcommand: '%s'", subcommand)
         end
     else
-        if not overview then
-            overview = require("parcel.ui").Overview:new(require("parcel.config")._parcels)
-            overview:init({
-                float = args[2] == "float",
-                mods = options.mods,
-            })
-            overview:update()
-        end
+        local overview = require("parcel.ui").Overview.main({
+            float = args[2] == "float",
+            mods = options.mods,
+        })
 
         overview:render()
     end

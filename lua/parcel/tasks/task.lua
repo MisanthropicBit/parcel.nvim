@@ -33,14 +33,18 @@ local function formatted_error(msg, ...)
 end
 
 --- Handle the callback from an async function
+---@param task parcel.Task
 ---@param callback parcel.async.Callback?
 ---@param results any
 ---@param err any
-local function handle_callback(callback, results, err)
+local function handle_callback(task, callback, results, err)
+    -- vim.print(vim.inspect(err))
     if callback ~= nil then
         if err == nil then
             callback(true, unpack(results, 2, table.maxn(results)))
         else
+            ---@diagnostic disable-next-line: invisible
+            task:set_error(err)
             callback(false, err)
         end
     end
@@ -70,6 +74,7 @@ end
 ---@field private _end_time number
 ---@field private _failed boolean
 ---@field private _cancelled boolean
+---@field private _err any
 local Task = {}
 
 Task.__index = Task
@@ -202,11 +207,15 @@ local wait_all = Task.wrap(function(tasks, options, callback)
     end
 end, 3, { async_only = true })
 
+---@class WaitAllResult
+---@field ok boolean
+---@field result any
+
 --- Run tasks waiting for all the finish successfully or not
 ---@param tasks (function | parcel.Task)[]
 ---@param options parcel.task.WaitOptions?
 ---@return boolean # whether execution succeeded or not (e.g. false if timed out)
----@return any # result of execution
+---@return WaitAllResult[] # result of execution
 function Task.wait_all(tasks, options)
     return wait_all(tasks, options)
 end
@@ -328,7 +337,7 @@ function Task:start(...)
     -- programming
     step = function(...)
         if self:cancelled() then
-            handle_callback(callback, "Task was cancelled")
+            handle_callback(self, callback, "Task was cancelled")
             return
         end
 
@@ -336,7 +345,7 @@ function Task:start(...)
         local status, nargs, err_or_fn = unpack(results)
 
         if not status then
-            handle_callback(callback, nil, formatted_error(
+            handle_callback(self, callback, nil, formatted_error(
                 "Task failed: %s\n%s",
                 err_or_fn,
                 debug.traceback(thread)
@@ -345,12 +354,12 @@ function Task:start(...)
         end
 
         if coroutine.status(thread) == "dead" then
-            handle_callback(callback, results)
+            handle_callback(self, callback, results)
             return
         end
 
         if type(err_or_fn) ~= "function" then
-            handle_callback(callback, nil, formatted_error(
+            handle_callback(self, callback, nil, formatted_error(
                 "Internal task error: expected function, got %s\n%s\n%s",
                 type(err_or_fn),
                 vim.inspect(results),
@@ -396,6 +405,17 @@ end
 ---@return boolean
 function Task:running()
     return self:started() and not self:done()
+end
+
+---@private
+---@param err any
+function Task:set_error(err)
+    self._error = err
+end
+
+---@return any
+function Task:error()
+    return self._error
 end
 
 function Task:cancel()

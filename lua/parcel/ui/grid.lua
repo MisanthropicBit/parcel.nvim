@@ -68,9 +68,13 @@ end
 ---@param start_col integer
 ---@param end_col integer
 ---@param column any
-function Grid:set_highlight(lnum, start_col, end_col, column)
-    if column.hl ~= nil then
-        local highlight = {
+function Grid:set_highlight(lnum, start_col, end_col, column, first)
+    local highlight
+
+    -- Create an extmark if there is a highlight or if there we are
+    -- setting the first column (for jumping between parcels in the ui)
+    if column.hl ~= nil or start_col == 0 then
+        highlight = {
             hl_group = column.hl,
             lnum = self._lnum + lnum - 1,
             start_col = start_col,
@@ -92,6 +96,7 @@ function Grid:set_highlight(lnum, start_col, end_col, column)
         -- If the highlight is at the start of a line, save it so we can use it
         -- to find positions near the cursor later
         if start_col == 0 then
+            -- TODO: Add an empty extmark if no highlight
             table.insert(self._line_extmarks, highlight)
             self._extmarks[highlight.id] = #self._line_extmarks
         end
@@ -300,7 +305,8 @@ function Grid:set_highlights()
 
     for lnum, row in ipairs(self._rows) do
         assert(Row.is_row(row), "Non-row value found in grid")
-        local col = self._indent + vim.fn.strlen(self._sep)
+        -- TODO: This won't work for _indent > 0
+        local col = 0 -- self._indent + vim.fn.strlen(self._sep)
 
         for _, column in row:iter() do
             local start_col = col

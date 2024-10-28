@@ -1,5 +1,6 @@
 return {
     install = require("parcel.actions.install"),
-    install_missing = require("parcel.actions.install_missing"),
-    update_parcels = require("parcel.actions.update_parcels"),
+    update = require("parcel.actions.update"),
+    uninstall = require("parcel.actions.uninstall"),
+    update_from_spec = require("parcel.actions.update_from_spec"),
 }

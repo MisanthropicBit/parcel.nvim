@@ -21,6 +21,10 @@ function dev_source.supported()
     }
 end
 
+function dev_source.write_section(parcel, section)
+    -- Noop
+end
+
 -- TODO: Return a structure that is put into each parcel instead?
 function dev_source.install(parcel)
     local path = vim.fs.normalize(parcel:name())
@@ -28,10 +32,12 @@ function dev_source.install(parcel)
 
     if not ok then
         parcel:push_error(stat, { path = path })
-        return
+        return false
     end
 
     async.opt.runtimepath:append(path)
+
+    return true
 end
 
 function dev_source.update(parcel, context)

@@ -2,14 +2,16 @@ local constants = {}
 
 local Path = require("parcel.path")
 
-local lockfile_path = Path.join(vim.fn.stdpath("data"), "parcel.lock.json")
+local values = {
+    lockfile = Path.join(vim.fn.stdpath("data"), "parcel.lock.json"),
+    state_file = "parcel.state.json",
+    default_single_task_timeout = 3 * 1000,
+    default_multi_task_timeout = 10 * 1000,
+}
 
-function constants.lockfile()
-    return lockfile_path
-end
-
-function constants.state_file()
-    return "parcel.state.json"
-end
-
-return constants
+return setmetatable({}, {
+    __index = values,
+    __new_index = function(_, key)
+        error(("Cannot modify constants (key: '%s')"):format(key))
+    end
+})

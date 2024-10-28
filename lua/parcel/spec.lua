@@ -26,7 +26,13 @@ Spec.__index = Spec
 
 ---@return parcel.Spec
 function Spec:new(raw_spec, source)
-    local spec_name = type(raw_spec) == "string" and raw_spec or raw_spec[1]
+    local spec_name
+
+    if type(raw_spec) == "string" then
+        spec_name = raw_spec
+    elseif type(raw_spec) == "table" then
+        spec_name = raw_spec[1]
+    end
 
     return setmetatable({
         _name = spec_name,
@@ -82,16 +88,17 @@ function Spec:validate()
     local raw_spec = self._raw_spec
 
     if type(raw_spec) == "string" then
+        self._validated = true
         return true, self:errors()
     end
 
     if type(raw_spec) ~= "table" then
-        self:push_error("Expected string or table, got '%s", nil, type(raw_spec))
+        self:push_error("Expected string or table, got '%s'", nil, type(raw_spec))
         return false, self:errors()
     end
 
     if type(raw_spec[1]) ~= "string" then
-        self:push_error("Expected parcel name as first table element")
+        self:push_error("Expected parcel name as first table element at index 1")
         return false, self:errors()
     end
 
@@ -111,7 +118,7 @@ function Spec:validate()
 
         if key_spec == nil then
             self:push_error(
-                "Unknown configuration key '%s' for source '%s",
+                "Unknown configuration key '%s' for source '%s'",
                 nil,
                 key,
                 source.name()
@@ -120,7 +127,7 @@ function Spec:validate()
             if key_spec.expected_types then
                 if not vim.tbl_contains(key_spec.expected_types, type(value)) then
                     self:push_error(
-                        "Expected type(s) %s for key %s but got type %s",
+                        "Expected type(s) %s for key '%s' but got type '%s'",
                         nil,
                         table.concat(key_spec.expected_types, ", "),
                         key,
@@ -133,7 +140,7 @@ function Spec:validate()
                 local valid, err = key_spec.validator(value)
 
                 if not valid then
-                    self:push_error("Key %s failed validation: %s", nil, key, err)
+                    self:push_error("Key '%s' failed validation: %s", nil, key, err)
                 end
             end
         end

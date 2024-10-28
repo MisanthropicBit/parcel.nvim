@@ -1,49 +1,36 @@
-local config = require("parcel.config")
-local notify = require("parcel.notify")
-local sources = require("parcel.sources")
-local Task = require("parcel.tasks")
+local install = {}
 
----@async
----@param parcel parcel.Parcel
----@return parcel.Task
-local function install_parcel(parcel)
-    return Task.new(function()
-        local source = sources.get_source(parcel:source())
-        ---@cast source -nil
+local Parcel = require("parcel.parcel")
+local Spec = require("parcel.spec")
+local state = require("parcel.state")
 
-        --- TODO: Notify overview here
-        parcel:set_state(parcel.State.Updating)
+---@param user_spec parcel.Spec
+---@param source parcel.Source
+---@return boolean
+---@return boolean
+---@return parcel.Parcel?
+function install.install_parcel(user_spec, source)
+    local spec = Spec:new(user_spec, source.name())
+    local new_parcel = Parcel:new({ spec = spec })
+    local spec_ok = spec:validate()
+    local install_ok, result
 
-        local result = source.install(parcel)
+    if not spec_ok then
+        new_parcel:set_state(Parcel.State.Failed)
+    else
+        install_ok, result = pcall(source.install, new_parcel)
 
-        if parcel:state() == parcel.State.Updating then
-            parcel:set_state(parcel.State.Installed)
+        if not install_ok or not result then
+            new_parcel:set_state(Parcel.State.Failed)
+        else
+            new_parcel:set_state(Parcel.State.Installed)
         end
+    end
 
-        -- vim.print(result)
-        -- local state = result and parcel.State.Installed or parcel.State.Failed
+    -- Add the parcel to the state so the user can see any errors in the ui
+    state.add_parcel(new_parcel)
 
-        -- --- TODO: Notify overview here
-        -- parcel:set_state(state)
-        -- if not task:failed() then
-        --     parcel:set_state(parcel.State.installed)
-        -- else
-        --     parcel:push_error(task:error())
-        -- end
-    end)
+    return spec_ok, install_ok, new_parcel
 end
 
----@async
----@param parcels parcel.Parcel[]
----@return parcel.Task
-return function(parcels)
-    return Task.run(function()
-        ---@type parcel.Task[]
-        local tasks = vim.tbl_map(install_parcel, parcels)
-        local results = Task.wait_all(tasks, { concurrency = config.concurrency })
-
-        -- notify.log.info("Finished installing %d parcels", #parcels)
-
-        return results
-    end)
-end
+return install

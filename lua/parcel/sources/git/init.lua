@@ -6,6 +6,7 @@ local config = require("parcel.config")
 local git = require("parcel.tasks.git")
 local log = require("parcel.log")
 local Path = require("parcel.path")
+local tblx = require("parcel.tblx")
 
 local github_url_format = "https://www.github.com/%s.git"
 
@@ -35,6 +36,24 @@ local function validate_commit_sha(commit_sha)
     end
 
     return true
+end
+
+local function options_from_spec_diff(spec_diff, keys)
+    local options = {}
+
+    for _, key in ipairs(keys) do
+        local state = spec_diff[key]
+
+        if state then
+            local diff_state = state[1]
+
+            if diff_state == tblx.TableDiffState.Added or diff_state == tblx.TableDiffState.Changed then
+                options[key] = state[2]
+            end
+        end
+    end
+
+    return options
 end
 
 function git_source.name()
@@ -95,6 +114,17 @@ end
 function git_source.write_section(parcel, section)
     local section_bullet = config.ui.icons.section_bullet
 
+    section
+        :newline()
+        :add("Url    ", "Keyword", { sep = section_bullet })
+        :add(url_from_parcel(parcel)):newline()
+
+    if parcel:spec():get("commit") then
+        section
+            :add("Commit   ", "Keyword", { sep = section_bullet })
+            :add(parcel:spec():get("commit")):newline()
+    end
+
     if parcel:version() then
         section
             :add(
@@ -106,31 +136,31 @@ function git_source.write_section(parcel, section)
             :newline()
     end
 
-    if parcel:license() ~= nil and #parcel:license() > 0 then
-        section:add(
-                "License         ",
-                "Keyword", -- "ParcelSectionLicense",
-                { sep = section_bullet }
-            )
-            :add(parcel:license())
-            :newline()
-    end
+    -- if parcel:license() ~= nil and #parcel:license() > 0 then
+    --     section:add(
+    --             "License         ",
+    --             "Keyword", -- "ParcelSectionLicense",
+    --             { sep = section_bullet }
+    --         )
+    --         :add(parcel:license())
+    --         :newline()
+    -- end
 
-    section
-        :add(
-            "Issues          ",
-            "Keyword", -- "ParcelSectionIssues",
-            { sep = section_bullet }
-        )
-        :add(parcel.issues_url)
-        :newline()
-        :add(
-            "Pull requests   ",
-            "Keyword", -- "ParcelSectionPulls",
-            { sep = section_bullet }
-        )
-        :add(parcel.pulls_url)
-        :newline()
+    -- section
+    --     :add(
+    --         "Issues          ",
+    --         "Keyword", -- "ParcelSectionIssues",
+    --         { sep = section_bullet }
+    --     )
+    --     :add(parcel.issues_url)
+    --     :newline()
+    --     :add(
+    --         "Pull requests   ",
+    --         "Keyword", -- "ParcelSectionPulls",
+    --         { sep = section_bullet }
+    --     )
+    --     :add(parcel.pulls_url)
+    --     :newline()
 end
 
 function git_source.install(parcel)
@@ -150,7 +180,7 @@ function git_source.install(parcel)
         local args = { "Failed to clone repository", { url = url, err = result } }
         parcel:push_error(unpack(args))
         log.error(unpack(args))
-        return
+        error(args)
     end
 
     async.opt.runtimepath:append(dir)
@@ -162,13 +192,11 @@ function git_source.update(parcel, context)
     -- TODO: Check that directory exists
 
     local spec_diff = context.spec_diff
-
-    -- TODO: Handle different diff states
-    local options = {
-        branch = spec_diff.branch or nil,
-        commit = spec_diff.commit or nil,
-        tag = spec_diff.tag or nil,
-    }
+    local options = options_from_spec_diff(spec_diff, {
+        "branch",
+        "commit",
+        "tag",
+    })
 
     local ok, result = git.checkout(dir, options)
 
@@ -176,6 +204,7 @@ function git_source.update(parcel, context)
         local args = { "Failed to update git parcel", { err = result } }
         parcel:push_error(unpack(args))
         log.error(unpack(args))
+        error(args)
     end
 end
 

@@ -37,7 +37,7 @@ end
 ---@async
 ---@param specs any
 ---@return table<parcel.SourceType, parcel.Parcel[]>
-function state.get_installed_parcels(specs)
+function state.get_installed_parcels2(specs)
     local installed = {}
 
     for source, _ in pairs(sources.Source) do
@@ -45,6 +45,56 @@ function state.get_installed_parcels(specs)
             installed[sources.Source.dev] = vim.tbl_values(parcels[sources.Source.dev] or {})
         else
             installed[source] = {}
+        end
+    end
+
+    ----@param entry uv.aliases.fs_readdir_entries
+    local function is_directory(entry)
+        return entry.type == "directory"
+    end
+
+    for source_name, _ in pairs(sources.Source) do
+        if source_name == sources.Source.dev then
+            goto continue
+        end
+
+        local source_path = Path:new(config.dir, "parcel", source_name)
+        async.fs.mkdirs(source_path:absolute())
+
+        -- TODO: Read directory entries for at most depth 2 for git only
+        for depth, entry in async.fs.iter_dir(source_path, { depth = 2, filter = is_directory }) do
+            if depth == 2 then
+                installed[source_name][entry.relpath] = true
+            end
+        end
+
+        :: continue ::
+    end
+
+    return installed
+end
+
+---@async
+---@param specs any
+---@return table<parcel.SourceType, parcel.Parcel[]>
+function state.get_installed_parcels(specs)
+    local installed = {}
+
+    for source, _ in pairs(sources.Source) do
+        if source == sources.Source.dev then
+            -- If we are re-sourcing, then add all the already installed parcels
+            installed[sources.Source.dev] = vim.tbl_values(parcels[sources.Source.dev] or {})
+        else
+            installed[source] = {}
+        end
+    end
+
+    -- Check if dev sources are installed by seeing if the local directory exists
+    for _, spec in ipairs(specs[sources.Source.dev]) do
+        if installed[sources.Source.dev][spec[1]] ~= true then
+            if async.fs.dir_exists(spec[1]) then
+                installed[sources.Source.dev][spec[1]] = true
+            end
         end
     end
 
@@ -61,29 +111,55 @@ function state.get_installed_parcels(specs)
             error(("Failed to open directory stream: %s"):format(dir_stream))
         end
 
-        ----@type uv.aliases.fs_readdir_entries
-        local entries, read_err = async.fs.readdir(dir_stream)
+        local read_err, entries = async.fs.readdir(dir_stream)
 
         if not entries then
             goto continue
         end
 
+        ----@cast entries uv.aliases.fs_readdir_entries
+
+        local directory_entries = {}
+
         while #entries > 0 do
             for _, entry in ipairs(entries) do
                 if entry.type == "directory" then
-                    installed[source_name][entry.name] = true
+                    table.insert(directory_entries, entry)
+                    -- installed[source_name][entry.name] = true
                 end
             end
 
-            entries, read_err = async.fs.readdir(dir_stream)
+            read_err, entries = async.fs.readdir(dir_stream)
 
-            if entries == nil then
-                async.fs.closedir(dir_stream)
+            if read_err or entries == nil then
+                -- async.fs.closedir(dir_stream)
                 break
             end
         end
 
         async.fs.closedir(dir_stream)
+
+        for _, directory_entry in ipairs(directory_entries) do
+            local err1, dir_stream1 = async.fs.opendir(Path.join(source_path:absolute(), directory_entry.name))
+            local read_err1, entries1 = async.fs.readdir(dir_stream1)
+
+            while #entries1 > 0 do
+                for _, entry in ipairs(entries1) do
+                    if entry.type == "directory" then
+                        local path = Path.join(directory_entry.name, entry.name)
+                        installed[source_name][path] = true
+                    end
+                end
+
+                read_err1, entries1 = async.fs.readdir(dir_stream1)
+
+                if read_err1 or entries1 == nil then
+                    async.fs.closedir(dir_stream1)
+                    break
+                end
+            end
+        end
+
         :: continue ::
     end
 

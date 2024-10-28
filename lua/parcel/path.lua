@@ -74,11 +74,11 @@ end
 
 ---@return string
 function Path:absolute()
-    local norm_path = vim.fs.normalize(Path.join(unpack(self._parts)))
+    local norm_path = #self._parts > 0 and vim.fs.normalize(Path.join(unpack(self._parts))) or ""
 
     return norm_path .. table.concat(
         vim.tbl_map(ensure_dot_extension, self._extensions),
-        Path.separator
+        ""
     )
 end
 

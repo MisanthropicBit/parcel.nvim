@@ -21,6 +21,7 @@ local function create_on_read_handler(result, stdio)
     return function(err, data)
         if data then
             local sub, _ = data:gsub("\r\n", "\n")
+            sub, _ = data:gsub("\n", "")
             table.insert(result[stdio], sub)
         end
     end

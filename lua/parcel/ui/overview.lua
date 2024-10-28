@@ -1,11 +1,14 @@
-local actions = require("parcel.actions")
+-- local actions = require("parcel.actions")
+local async_utils = require("parcel.tasks.async_utils")
 local compat = require("parcel.compat")
 local config = require("parcel.config")
-local icons = require("parcel.icons")
 local Grid = require("parcel.ui.grid")
+local icons = require("parcel.icons")
 local Lines = require("parcel.ui.lines")
-local async_utils = require("parcel.tasks.async_utils")
+local notify = require("parcel.notify")
 local sources = require("parcel.sources")
+local state = require("parcel.state")
+local Task = require("parcel.tasks")
 
 ---@type table<string, any>
 local window_options = {
@@ -28,6 +31,9 @@ local buffer_options = {
     filetype = "parcel-overview",
 }
 
+---@type parcel.Overview?
+local main_overview = nil
+
 ---@class parcel.Section
 ---@field visible boolean
 ---@field section parcel.Lines
@@ -46,22 +52,21 @@ local Overview = {}
 
 Overview.__index = Overview
 
----@param parcels parcel.Parcel[]
 ---@return parcel.Overview
-function Overview:new(parcels)
+function Overview:new()
     return setmetatable({
         lines = Lines:new(),
         parcels_by_extmark = {},
         selected = {},
         sections = {},
-        parcels = parcels or {},
+        parcels = {},
         timer = nil,
     }, Overview)
 end
 
----@param _options parcel.OverviewOptions?
-function Overview:init(_options)
-    local _options = _options or {}
+---@param options parcel.OverviewOptions?
+function Overview:init(options)
+    local _options = options or {}
 
     if _options.float then
         self.buffer = vim.api.nvim_create_buf(false, false)
@@ -74,12 +79,12 @@ function Overview:init(_options)
 
     -- Set default window options
     for option, value in pairs(window_options) do
-        vim.api.nvim_win_set_option(self.win_id, option, value)
+        vim.api.nvim_set_option_value(option, value, { scope = "local", win = self.win_id })
     end
 
     -- Set default buffer options
     for option, value in pairs(buffer_options) do
-        vim.api.nvim_buf_set_option(self.buffer, option, value)
+        vim.api.nvim_set_option_value(option, value, { buf = self.buffer })
     end
 
     local mappings = config.ui.mappings
@@ -197,17 +202,17 @@ function Overview:init(_options)
     --     end
     -- end)
 
-    -- self:on_key(mappings.update, function(parcel, row_idx)
-    --     if parcel then
-    --         self:update_parcels(row_idx, self.selected)
-    --     end
-    -- end)
+    self:on_key(mappings.update, function(_, parcel, row_idx)
+        if parcel then
+            self:update_parcels({ parcel })
+        end
+    end)
 
-    -- self:on_key(mappings.update_all, function(parcel)
-    --     if parcel then
-    --         self:update_parcels()
-    --     end
-    -- end)
+    self:on_key(mappings.update_all, function()
+        if #self.parcels > 0 then
+            self:update_parcels(self.parcels)
+        end
+    end)
 
     -- self.update = async_utils.throttle(100, self.update)
 
@@ -222,10 +227,10 @@ function Overview:init(_options)
         }
     )
 
-    self.grid = Grid:new({
-        buffer = self.buffer,
-        lnum = self.parcel_row_offset,
-    })
+    -- self.grid = Grid:new({
+    --     buffer = self.buffer,
+    --     lnum = self.parcel_row_offset,
+    -- })
 end
 
 function Overview:notify(type, parcel)
@@ -234,6 +239,50 @@ function Overview:notify(type, parcel)
     if not self.timer then
         self.timer = compat.loop.new_timer()
     end
+end
+
+---@async
+---@param parcels parcel.Parcel[]
+function Overview:update_parcels(parcels)
+    Task.run(function()
+        local tasks = {}
+
+        for _, parcel in ipairs(parcels) do
+            local source = sources.get_source(parcel:source_name())
+            ---@cast source -nil
+
+            table.insert(tasks, Task.new(function()
+                source.update(parcel)
+            end))
+        end
+
+        local ok, results = Task.wait_all(tasks, {
+            concurrency = config.concurrency,
+            timeout = 20000
+        })
+
+        if not ok then
+            if results == Task.timeout then
+                notify.log.error(
+                    "Update of %d parcel(s) timed out after %d milliseconds",
+                    #parcels,
+                    20000
+                )
+            else
+                local failed_updates = 0
+
+                for _, result in ipairs(results) do
+                    if not result.ok then
+                        failed_updates = failed_updates + 1
+                    end
+                end
+
+                if failed_updates > 0 then
+                    notify.log.error("%d parcel(s) failed to update", failed_updates)
+                end
+            end
+        end
+    end)
 end
 
 ---@param parcel parcel.Parcel
@@ -261,11 +310,11 @@ end
 function Overview:create_parcel_columns(parcel)
     local highlights = config.ui.highlights
     local _icons = config.ui.icons
-    local source_type_icon = _icons.sources[parcel:source()] or _icons.sources.unknown_source
+    local source_type_icon = _icons.sources[parcel:source_name()] or _icons.sources.unknown_source
 
     return {
         {
-            _icons[parcel:state()],
+            _icons.state[parcel:state()],
             rpad = 2,
             hl = highlights[parcel:state()],
         },
@@ -297,11 +346,11 @@ function Overview:create_parcel_columns(parcel)
             hl = highlights.pinned,
             rpad = 1,
         },
-        {
-            parcel:local_development(),
-            icon = _icons.dev,
-            hl = highlights.dev,
-        },
+        -- {
+        --     parcel:dev(),
+        --     icon = _icons.dev,
+        --     hl = highlights.dev,
+        -- },
     }
 end
 
@@ -324,11 +373,12 @@ function Overview:update(lnum)
         return
     end
 
-    self.lines = Lines:new()
-    self.lines:add("Parcels", "Title")
-    self.lines:add((" (%d)"):format(#self.parcels), "Title"):newline():newline()
-    self.lines:add("Press g? for help.", "Comment"):newline():newline()
-    self.parcel_row_offset = self.lines:row()
+    self.parcels = state.parcels()
+    self.lines
+        :add("Parcels", "Title")
+        :add((" (%d)"):format(#self.parcels), "Title"):newlines(2)
+        :add("Press g? for help.", "Comment"):newlines(2)
+    self.parcel_row_offset = self.lines:row_count()
 
     if #self.parcels == 0 then
         self.lines:add("No parcels specified, please call parcel.setup")
@@ -359,17 +409,60 @@ function Overview:format_text(text, placeholder)
     end
 end
 
+---@param parcel parcel.Parcel
+---@param section parcel.Lines
+---@return parcel.Lines
 function Overview:add_source_section(parcel, section)
     local _icons = config.ui.icons
     local section_bullet = _icons.section_bullet
-    local source = sources.get_source(parcel:source())
+    local source = sources.get_source(parcel:source_name())
 
     ---@cast source -nil
 
-    source.write_section(parcel, section)
+    local ok, result = pcall(source.write_section, parcel, section)
+
+    if not ok then
+        section
+            :add("Failed to write section for source:", "Title")
+            :newlines(2)
+            :add(result)
+    end
+
+    return section
 end
 
 ---@param parcel parcel.Parcel
+---@param section parcel.Lines
+---@return parcel.Lines
+function Overview:add_failed_subsection(parcel, section)
+    local errors = parcel:errors()
+
+    section
+        :add("%d error(s) encountered", "ErrorMsg", { args = { #errors } })
+        :newlines(2)
+
+    for idx, err in ipairs(errors) do
+        local is_process_error = err.context.err and err.context.err.code
+
+        section:add(err.message, "ErrorMsg"):newline()
+
+        if is_process_error then
+            -- TODO: What to do about newlines in process output?
+            section
+                :add("Process exited with code %d and error message", "WarningMsg", { args = { err.context.err.code } })
+                :newline()
+
+            for _, err_line in ipairs(err.context.err.stderr) do
+                section:add(err_line, nil):newline()
+            end
+        end
+    end
+
+    return section
+end
+
+---@param parcel parcel.Parcel
+---@return parcel.Lines
 function Overview:add_subsection(parcel, offset)
     -- local indent = self.grid:column_offset(2)
     local _icons = config.ui.icons
@@ -384,96 +477,55 @@ function Overview:add_subsection(parcel, offset)
         -- sep = section_sep .. " ",
     })
 
-    if parcel:state() ~= parcel.State.Installed then
-        section
-            :newline()
-            :add("Not installed", "ErrorMsg", { sep = section_bullet })
-            :newline()
-
-        section
-            :newline()
-            :add("")
-
-        return section
-    end
-
     section:newline()
 
-    if parcel:description() then
-        section:add(parcel:description()):newline():newline()
-    end
+    local parcel_state = parcel:state()
 
-    self:add_source_section(parcel, section)
+    if parcel_state == parcel.State.Failed then
+        self:add_failed_subsection(parcel, section)
+    elseif parcel_state == parcel.State.Updating then
+        section:add("Parcel is currently updating")
+    elseif parcel_state == parcel.State.NotInstalled then
+        section:add("Parcel is currently disabled")
+    elseif parcel_state == parcel.State.Installed then
+        -- TODO: Use grid for proper alignment
+        section
+            :add("Name   ", "Keyword", { sep = section_bullet })
+            :add(parcel:name()):newline()
+            :add("Source ", "Keyword", { sep = section_bullet })
+            :add(parcel:source_name()):newline()
 
-    section
-        :add(
-            "Source          ",
-            "Keyword", -- "ParcelSectionSource",
-            { sep = section_bullet }
-        )
-        :add(parcel:source())
-        :newline()
-
-    local deps = parcel:dependencies()
-
-    section
-        :newline()
-        :add(
-            "Dependencies (%d)",
-            "Label",
-            {
-                sep = section_double_bullet,
-                args = { #deps },
-            }
-        )
-        :newline()
-        :newline()
-
-    local dep_grid = Grid:new({
-        buffer = self.buffer,
-        indent = 1,--indent,
-        sep = _icons.section_sep .. " ",
-    })
-
-    if deps then
-        for _, dep in ipairs(deps) do
-            dep_grid:add_row({
-                { _icons.parcel .. " " .. (dep.name or dep.source), min_pad = 5 },
-                { dep.version, align = "right" },
-            })
+        if parcel:source_name() ~= sources.Source.dev then
+            section
+                :add("Path   ", "Keyword", { sep = section_bullet })
+                :add(parcel:path())
         end
+
+        self:add_source_section(parcel, section)
+
+        local deps = parcel:dependencies()
+
+        section
+            :newline()
+            :add(
+                "Dependencies (%d)",
+                "Label",
+                {
+                    sep = section_double_bullet,
+                    args = { #deps },
+                }
+            )
+
+        if deps and #deps > 0 then
+            section:newlines(2)
+
+            for _, dep in ipairs(deps) do
+                section:add("%s %s", "Normal", { args = { _icons.parcel, dep.name } })
+            end
+        end
+
+        section:newline()
     end
-
-    local ext_deps = parcel:external_dependencies()
-
-    section
-        :add(dep_grid)
-        :newline()
-        :newline(#deps > 0)
-        :add(
-            "External dependencies (%d)",
-            "Label",
-            {
-                sep = section_double_bullet,
-                args = { #ext_deps },
-            }
-        )
-        :newline(#ext_deps > 0)
-        :newline()
-
-    local ext_dep_grid = Grid:new({
-        indent = 1,--indent,
-        sep = _icons.section_sep .. " ",
-    })
-
-    for _, dep in ipairs(ext_deps) do
-        ext_dep_grid:add_row({
-            { _icons.external_dependency .. " " .. dep.name, min_pad = 5 },
-            { dep.version, align = "right" },
-        })
-    end
-
-    section:add(ext_dep_grid):newline()
 
     return section
 end
@@ -538,6 +590,19 @@ end
 function Overview:render(row_idx)
     self.lines:render(self.buffer)
     self:update_extmarks()
+end
+
+---@param options parcel.OverviewOptions?
+---@return parcel.Overview
+function Overview.main(options)
+    if not main_overview then
+        main_overview = Overview:new()
+
+        main_overview:init(options)
+        main_overview:update()
+    end
+
+    return main_overview
 end
 
 return Overview

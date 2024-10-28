@@ -21,6 +21,7 @@ local validators = require("parcel.sources.validators")
 ---@field configuration_keys fun(): table<string, parcel.SourceConfigKey>
 ---@field validate fun(parcel: parcel.Parcel, keys: table<string, any>): boolean
 ---@field supported async fun(): parcel.SourceSupport
+---@field write_section fun(parcel: parcel.Parcel, section: parcel.Lines)
 ---@field install async fun(parcel: parcel.Parcel, context: table?)
 ---@field update async fun(parcel: parcel.Parcel, context: table?)
 ---@field uninstall async fun(parcel: parcel.Parcel, context: table?)

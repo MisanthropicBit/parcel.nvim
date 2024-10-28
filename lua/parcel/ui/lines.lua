@@ -69,7 +69,16 @@ function Lines:newline(condition)
     return self
 end
 
-function Lines:row()
+---@param count integer?
+function Lines:newlines(count)
+    for i = 1, count or 1, 1 do
+        table.insert(self._rows, {})
+    end
+
+    return self
+end
+
+function Lines:row_count()
     return #self._rows
 end
 
