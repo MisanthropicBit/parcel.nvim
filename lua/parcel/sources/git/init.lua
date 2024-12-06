@@ -1,4 +1,5 @@
 ---@type parcel.Source
+---@diagnostic disable-next-line: missing-fields
 local git_source = {}
 
 local async = require("parcel.async")
@@ -22,20 +23,16 @@ local function get_git_directory(parcel)
 end
 
 ---@param commit_sha string
----@return boolean
----@return string?
 local function validate_commit_sha(commit_sha)
     if #commit_sha < 7 or #commit_sha > 40 then
-        return false, "git sha must be between 7 and 40 characters"
+        error("git sha must be between 7 and 40 characters")
     end
 
     local match = vim.fn.match(commit_sha, [[^[a-fA-F0-9]\+$]]) ~= -1
 
     if not match then
-        return false, "not a valid git sha"
+        error("not a valid git sha")
     end
-
-    return true
 end
 
 local function options_from_spec_diff(spec_diff, keys)
@@ -60,17 +57,27 @@ function git_source.name()
     return "git"
 end
 
--- TODO: This doesn't encode mutual exclusivity
 function git_source.configuration_keys()
     return {
         tag = {
             name = "tag",
             expected_types = { "string" },
+            validator = function(value, keys)
+                if keys.commit then
+                    error("Cannot specify both 'tag' and 'commit' keys")
+                end
+            end,
         },
         commit = {
             name = "commit",
             expected_types = { "string" },
-            validator = validate_commit_sha,
+            validator = function(value, keys)
+                if keys.commit then
+                    error("Cannot specify both 'tag' and 'commit' keys")
+                end
+
+                validate_commit_sha(value)
+            end,
         },
         branch = {
             name = "branch",
@@ -79,7 +86,15 @@ function git_source.configuration_keys()
         version = {
             name = "version",
             expected_types = { "string" },
-            -- TODO: validator = version.validate,
+            validator = function(value, keys)
+                error("'version' key is not supported yet")
+
+                -- if keys.tag then
+                --     error("Cannot specify both 'tag' and 'version' keys")
+                -- end
+                --
+                -- Version.validate(value)
+            end
         }
     }
 end
@@ -167,9 +182,11 @@ function git_source.install(parcel)
     local url = url_from_parcel(parcel)
     local spec = parcel:spec()
     local dir = get_git_directory(parcel)
+    local tag = spec:get("tag")
+
     local options = {
         branch = spec:get("branch"),
-        tag = spec:get("tag"),
+        tag = tag,
         commit = spec:get("commit"),
         dir = dir,
     }
@@ -186,10 +203,21 @@ function git_source.install(parcel)
     async.opt.runtimepath:append(dir)
 end
 
+local function report_source_error(msg, result, parcel)
+    local args = { msg, { err = result } }
+
+    parcel:push_error(unpack(args))
+    log.error(unpack(args))
+    error(args)
+end
+
 function git_source.update(parcel, context)
     local dir = get_git_directory(parcel)
+    local dir_exists, dir_err = async.fs.dir_exists(parcel:path())
 
-    -- TODO: Check that directory exists
+    if not dir_exists then
+        report_source_error(dir_err, nil, parcel)
+    end
 
     local spec_diff = context.spec_diff
     local options = options_from_spec_diff(spec_diff, {
@@ -198,13 +226,18 @@ function git_source.update(parcel, context)
         "tag",
     })
 
-    local ok, result = git.checkout(dir, options)
+    if vim.tbl_count(options) > 0 then
+        local ok, result = git.checkout(dir, options)
+
+        if not ok then
+            report_source_error("Failed to update git parcel", result, parcel)
+        end
+    end
+
+    local ok, result = git.pull(dir)
 
     if not ok then
-        local args = { "Failed to update git parcel", { err = result } }
-        parcel:push_error(unpack(args))
-        log.error(unpack(args))
-        error(args)
+        report_source_error("Failed to update git parcel", result, parcel)
     end
 end
 

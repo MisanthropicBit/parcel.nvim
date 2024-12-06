@@ -16,6 +16,8 @@ local Task = require("parcel.tasks")
 ---@field commit string?
 ---@field tag string?
 
+---@class parcel.GitPullOptions
+
 ---@param url string
 ---@param options parcel.GitCloneOptions?
 ---@param callback fun(ok: boolean, result: parcel.ProcessResult)
@@ -70,6 +72,27 @@ git.checkout = Task.wrap(function(dir, options, callback)
     process.spawn("git", {
         cwd = dir,
         args = args,
+        on_exit = function(result, code, signal)
+            result.code = code
+            result.signal = signal
+            callback(code == 0, result)
+        end,
+    })
+end, 3)
+
+---@param dir string
+---@param options parcel.GitPullOptions
+---@param callback fun(ok: boolean, result: parcel.ProcessResult)
+git.pull = Task.wrap(function(dir, options, callback)
+    local args = { "pull" }
+    local _options = options or {}
+
+    -- TODO: Fix logging these types of arguments
+    -- log.debug("tasks.git.clone", { args = args })
+
+    process.spawn("git", {
+        cwd = dir,
+        args = {},
         on_exit = function(result, code, signal)
             result.code = code
             result.signal = signal

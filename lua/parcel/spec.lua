@@ -108,6 +108,12 @@ function Spec:validate()
         sources.common_configuration_keys()
     )
 
+    local set_keys = {}
+
+    for key, value in pairs(vim.tbl_keys(config_keys)) do
+        set_keys[key] = true
+    end
+
     -- Check each key and value in the raw user spec
     for key, value in pairs(raw_spec) do
         if key == 1 then
@@ -137,7 +143,7 @@ function Spec:validate()
             end
 
             if key_spec.validator then
-                local valid, err = key_spec.validator(value)
+                local valid, err = pcall(key_spec.validator, value, set_keys)
 
                 if not valid then
                     self:push_error("Key '%s' failed validation: %s", nil, key, err)

@@ -30,7 +30,7 @@ local validators = require("parcel.sources.validators")
 ---@field name string
 ---@field expected_types string[]
 ---@field required boolean?
----@field validator fun(value: any)
+---@field validator fun(value: any, keys: string[])
 
 ---@enum parcel.SourceType
 sources.Source = {
