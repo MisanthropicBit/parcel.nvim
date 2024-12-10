@@ -124,7 +124,7 @@ local function iter_dir(path, options)
                 error(("Failed to read directory '%s': %s"):format(curpath, read_err))
             elseif not entries then
                 -- No more entries in this directory
-                async.fs.closedir(dir_stream)
+                async_fs.closedir(dir_stream)
 
                 if depth <= _options.depth then
                     local next_directory = table.remove(directories, 1)
