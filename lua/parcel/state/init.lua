@@ -27,7 +27,7 @@ local function open_or_create_directory(path)
     local err, dir_stream = async.fs.opendir(abspath)
 
     if err then
-        async.fs.mkdirs(abspath, "p", 438)
+        async.fs.mkdirs(abspath, "p", 493) -- 438)
         return async.fs.opendir(abspath)
     end
 
@@ -90,7 +90,7 @@ function state.get_installed_parcels(specs)
     end
 
     -- Check if dev sources are installed by seeing if the local directory exists
-    for _, spec in ipairs(specs[sources.Source.dev]) do
+    for _, spec in ipairs(specs[sources.Source.dev] or {}) do
         if installed[sources.Source.dev][spec[1]] ~= true then
             if async.fs.dir_exists(spec[1]) then
                 installed[sources.Source.dev][spec[1]] = true
@@ -108,7 +108,7 @@ function state.get_installed_parcels(specs)
 
         if dir_err then
             -- TODO: Handle failure gracefully
-            error(("Failed to open directory stream: %s"):format(dir_stream))
+            error(("Failed to open directory stream for '%s'"):format(source_path:absolute()))
         end
 
         local read_err, entries = async.fs.readdir(dir_stream)

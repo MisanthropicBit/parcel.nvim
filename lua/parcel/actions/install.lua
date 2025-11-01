@@ -9,8 +9,8 @@ local state = require("parcel.state")
 ---@return boolean
 ---@return boolean
 ---@return parcel.Parcel?
-function install.install_parcel(user_spec, source)
-    local spec = Spec:new(user_spec, source.name())
+return function(user_spec, source)
+    local spec = Spec:new(user_spec, source:name())
     local new_parcel = Parcel:new({ spec = spec })
     local spec_ok = spec:validate()
     local install_ok, result
@@ -32,5 +32,3 @@ function install.install_parcel(user_spec, source)
 
     return spec_ok, install_ok, new_parcel
 end
-
-return install

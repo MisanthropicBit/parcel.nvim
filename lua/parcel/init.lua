@@ -33,7 +33,7 @@ function parcel.setup(configuration)
     -- TODO: Perhaps don't use a global variable?
     vim.g.parcel_loaded = true
 
-    actions.update_parcels(configuration.sources)
+    actions.update_parcels_from_spec(configuration.sources)
 end
 
 return parcel

@@ -1,6 +1,7 @@
 local config = require("parcel.config")
 local constants = require("parcel.constants")
 local loader = require("parcel.loader")
+local lockfile = require("parcel.lockfile")
 local notify = require("parcel.notify")
 local Parcel = require("parcel.parcel")
 local Path = require("parcel.path")
@@ -8,7 +9,6 @@ local sources = require("parcel.sources")
 local Spec = require("parcel.spec")
 local state = require("parcel.state")
 local Task = require("parcel.tasks")
-local tblx = require("parcel.tblx")
 local ui = require("parcel.ui")
 local utils = require("parcel.utils")
 
@@ -141,7 +141,7 @@ end
 ---@async
 ---@param specs table<parcel.SourceType, parcel.Spec[]>
 ---@return parcel.Task
-local function update_parcels(specs)
+local function update_parcels_from_spec(specs)
     return Task.run(function()
         ---@type parcel.ParcelChanges
         local parcel_changes = {
@@ -154,10 +154,13 @@ local function update_parcels(specs)
         local actions = require("parcel.actions")
         local tasks = {}
 
-        -- 1. Get already installed parcels
+        -- 1. Read lockfile
+        local lockfile_json = lockfile.read()
+
+        -- 2. Get already installed parcels
         local installed_parcels = state.get_installed_parcels(specs)
 
-        -- 2. Iterate installed parcels and see if any parcels were removed
+        -- 3. Iterate installed parcels and see if any parcels were removed
         for source_type, parcels in pairs(installed_parcels) do
             for _, parcel in ipairs(parcels) do
                 local user_spec = indexed_specs[source_type][parcel:name()]
@@ -165,22 +168,21 @@ local function update_parcels(specs)
                 ---@cast source parcel.Source
 
                 if not user_spec then
-                    -- 2a. Parcel was removed in the spec, uninstall it
+                    -- 3a. Parcel was removed in the spec, uninstall it
+                    -- TODO: Just run the task immediately here?
                     table.insert(tasks, Task.new(function()
-                        local ok = actions.uninstall.uninstall_parcel(source, parcel)
-
-                        if not ok then
+                        if actions.uninstall_parcel(source, parcel) then
+                            table.insert(parcel_changes[ParcelChange.Removed], parcel)
+                            -- ui.Overview.main():notify()
+                        else
                             errors = errors + 1
                         end
-
-                        -- ui.Overview.main():notify()
-
-                        table.insert(parcel_changes[ParcelChange.Removed], parcel)
                     end))
                 else
-                    -- 2b. Check if parcel spec was updated and update it
+                    -- 3b. Check if parcel spec was updated and update it
+                    -- TODO: Just run the task immediately here?
                     table.insert(tasks, Task.new(function()
-                        if actions.update.update_parcel(user_spec, source, parcel) then
+                        if actions.update_parcel_from_spec(user_spec, source, parcel) then
                             table.insert(parcel_changes[ParcelChange.Updated], parcel)
                         else
                             errors = errors + 1
@@ -192,7 +194,7 @@ local function update_parcels(specs)
             end
         end
 
-        -- 3. Iterate user specs and see if any parcels were added
+        -- 4. Iterate user specs and see if any parcels were added
         for source_type, spec_map in pairs(indexed_specs) do
             for name, user_spec in pairs(spec_map) do
                 local source = sources.get_source(source_type)
@@ -200,23 +202,24 @@ local function update_parcels(specs)
 
                 local parcel_installed = installed_parcels[source_type][name]
 
-                if parcel_installed then
+                if parcel_installed and not state.has_parcel(source:name(), name) then
                     local spec = Spec:new(user_spec, source.name())
                     local parcel = Parcel:new({ spec = spec })
 
                     parcel:set_state(Parcel.State.Installed)
                     state.add_parcel(parcel)
                 else
-                    -- 3a. Parcel not installed, install it
+                    -- 4a. Parcel not installed, install it
+                    -- TODO: Just run the task immediately here?
                     table.insert(tasks, Task.new(function()
-                        local spec_ok, install_ok, new_parcel = actions.install.install_parcel(user_spec, source)
+                        local spec_ok, install_ok, new_parcel = actions.install_parcel(user_spec, source)
 
                         if not spec_ok or not install_ok then
                             errors = errors + (install_ok and 0 or 1)
                             spec_errors = spec_errors + (spec_ok and 0 or 1)
-                        else
-                            table.insert(parcel_changes[ParcelChange.Added], new_parcel)
                         end
+
+                        table.insert(parcel_changes[ParcelChange.Added], new_parcel)
                     end))
                 end
 
@@ -245,7 +248,7 @@ end
 ---@param specs table<parcel.SourceType, parcel.Spec[]>
 return function(specs)
     Task.run(function()
-        local update_task = update_parcels(specs)
+        local update_task = update_parcels_from_spec(specs)
 
         update_task:wait(constants.default_multi_task_timeout)
         notify.log.task_result(update_task)

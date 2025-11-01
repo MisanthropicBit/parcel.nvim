@@ -17,14 +17,16 @@ local validators = require("parcel.sources.validators")
 
 --- The interface for plugins that retrieve parcels from some source
 ---@class parcel.Source
----@field name fun(): string
+---@field name               fun(): string
 ---@field configuration_keys fun(): table<string, parcel.SourceConfigKey>
----@field validate fun(parcel: parcel.Parcel, keys: table<string, any>): boolean
----@field supported async fun(): parcel.SourceSupport
----@field write_section fun(parcel: parcel.Parcel, section: parcel.Lines)
----@field install async fun(parcel: parcel.Parcel, context: table?)
----@field update async fun(parcel: parcel.Parcel, context: table?)
----@field uninstall async fun(parcel: parcel.Parcel, context: table?)
+---@field validate           fun(parcel: parcel.Parcel, keys: table<string, any>): boolean
+---@field supported          async fun(): parcel.SourceSupport
+---@field write_section      fun(parcel: parcel.Parcel, section: parcel.Lines)
+---@field install            async fun(parcel: parcel.Parcel, context: table?)
+---@field has_update         async fun(parcel: parcel.Parcel, context: table?)
+---@field update             async fun(parcel: parcel.Parcel, context: table?)
+---@field update_from_spec   async fun(parcel: parcel.Parcel, context: table?)
+---@field uninstall          async fun(parcel: parcel.Parcel, context: table?)
 
 ---@class parcel.SourceConfigKey
 ---@field name string

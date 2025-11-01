@@ -1,6 +1,5 @@
 local async = require("parcel.async")
 local config = require("parcel.config")
-local version = require("parcel.version")
 
 local loader = {}
 

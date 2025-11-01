@@ -5,6 +5,7 @@ local git_source = {}
 local async = require("parcel.async")
 local config = require("parcel.config")
 local git = require("parcel.tasks.git")
+local lockfile = require("parcel.lockfile")
 local log = require("parcel.log")
 local Path = require("parcel.path")
 local tblx = require("parcel.tblx")
@@ -178,6 +179,17 @@ function git_source.write_section(parcel, section)
     --     :newline()
 end
 
+---@param msg string
+---@param result any
+---@param parcel parcel.Parcel
+local function report_source_error(msg, result, parcel)
+    local args = { msg, { err = result } }
+
+    parcel:push_error(unpack(args))
+    log.error(unpack(args))
+    error(args)
+end
+
 function git_source.install(parcel)
     local url = url_from_parcel(parcel)
     local spec = parcel:spec()
@@ -194,24 +206,38 @@ function git_source.install(parcel)
     local ok, result = git.clone(url, options)
 
     if not ok then
-        local args = { "Failed to clone repository", { url = url, err = result } }
-        parcel:push_error(unpack(args))
-        log.error(unpack(args))
-        error(args)
+        report_source_error("Failed to clone repository", { url = url, err = result }, parcel)
+        return
     end
 
     async.opt.runtimepath:append(dir)
 end
 
-local function report_source_error(msg, result, parcel)
-    local args = { msg, { err = result } }
-
-    parcel:push_error(unpack(args))
-    log.error(unpack(args))
-    error(args)
+function git_source.has_update(parcel, context)
 end
 
 function git_source.update(parcel, context)
+    local dir = get_git_directory(parcel)
+    local dir_exists, dir_err = async.fs.dir_exists(parcel:path())
+
+    if not dir_exists then
+        report_source_error(dir_err, nil, parcel)
+    end
+
+    local url = url_from_parcel(parcel)
+    local options = {
+        dir = get_git_directory(parcel),
+    }
+
+    local ok, result = git.pull(url, options)
+
+    if not ok then
+        report_source_error("Failed to clone repository", { url = url, err = result }, parcel)
+        return
+    end
+end
+
+function git_source.update_from_spec(parcel, context)
     local dir = get_git_directory(parcel)
     local dir_exists, dir_err = async.fs.dir_exists(parcel:path())
 

@@ -5,20 +5,27 @@ local constants = require("parcel.constants")
 local Path = require("parcel.path")
 local notify = require("parcel.notify")
 
+---@return boolean
+---@return any
 function lockfile.read()
-    local path = Path.join(vim.constants.lockfile())
+    local path = Path.join(constants.lockfile)
 
     local fd = async.fs.open(path, "r", 438)
     local stat = async.fs.fstat(fd)
     local data = async.fs.read(fd, stat.size, 0)
-    local json = vim.json.decode(data, {
+
+    local ok, json = pcall(vim.json.decode, data, {
         object = true,
         array = true,
     })
 
+    if not ok then
+        return false, json
+    end
+
     async.fs.close(fd)
 
-    return data
+    return true, data
 end
 
 -- TODO: Lockfile format depends on source type
@@ -35,6 +42,10 @@ function lockfile.write(data)
 
     async.fs.close(fd)
     return true
+end
+
+function lockfile.get(data, source, name)
+    
 end
 
 -- function state.update(parcels)
