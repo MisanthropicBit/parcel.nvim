@@ -2,13 +2,14 @@ local Lines = require("parcel.ui.lines")
 
 local Section = {}
 
-function Section:new()
+Section.__index = Lines
+
+function Section.new()
     local section = {
         rows = {}
     }
-    self.__index = Lines
 
-    return setmetatable(section, self)
+    return setmetatable(section, Section)
 end
 
 return Section

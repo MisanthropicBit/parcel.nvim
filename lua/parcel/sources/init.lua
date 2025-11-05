@@ -18,15 +18,10 @@ local validators = require("parcel.sources.validators")
 --- The interface for plugins that retrieve parcels from some source
 ---@class parcel.Source
 ---@field name               fun(): string
----@field configuration_keys fun(): table<string, parcel.SourceConfigKey>
----@field validate           fun(parcel: parcel.Parcel, keys: table<string, any>): boolean
 ---@field supported          async fun(): parcel.SourceSupport
 ---@field write_section      fun(parcel: parcel.Parcel, section: parcel.Lines)
----@field install            async fun(parcel: parcel.Parcel, context: table?)
 ---@field has_update         async fun(parcel: parcel.Parcel, context: table?)
 ---@field update             async fun(parcel: parcel.Parcel, context: table?)
----@field update_from_spec   async fun(parcel: parcel.Parcel, context: table?)
----@field uninstall          async fun(parcel: parcel.Parcel, context: table?)
 
 ---@class parcel.SourceConfigKey
 ---@field name string
@@ -37,40 +32,7 @@ local validators = require("parcel.sources.validators")
 ---@enum parcel.SourceType
 sources.Source = {
     git = "git",
-    luarocks = "luarocks",
-    dev = "dev",
 }
-
----@return table<string, parcel.SourceConfigKey>
-function sources.common_configuration_keys()
-    return {
-        version = {
-            name = "version",
-            expected_types = { "string" }, -- TODO: Add version validation
-        },
-        pin = {
-            name = "pin",
-            expected_types = { "boolean" },
-        },
-        disable = {
-            name = "disable",
-            expected_types = { "boolean" }
-        },
-        condition = {
-            name = "condition",
-            expected_types = { "function" },
-        },
-        dependencies = {
-            name = "dependencies",
-            expected_types = { "table" },
-            validator = validators.is_list,
-        },
-        config = {
-            name = "config",
-            expected_types = { "function", "string" },
-        },
-    }
-end
 
 ---@param source_type string | parcel.SourceType
 ---@return parcel.Source?

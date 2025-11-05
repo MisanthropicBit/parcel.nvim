@@ -1,5 +1,7 @@
 local log = {}
 
+-- TODO: Clean up this module
+
 local Path = require("parcel.path")
 
 local separator = "|"

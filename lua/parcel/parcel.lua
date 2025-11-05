@@ -1,38 +1,22 @@
-local config = require("parcel.config")
 local utils = require("parcel.utils")
-local Path = require("parcel.path")
--- local version = require("parcel.version")
 
 ---@class parcel.ParcelError
 ---@field message string
 ---@field context table?
 
 ---@class parcel.Parcel
----@field issues_url? string
----@field pulls_url? string
----@field source_type string
----@field dependencies? parcel.Dependency[]
----@field packspec? parcel.Packspec
----@field private _spec parcel.Spec
----@field private _name string
+---@field private _source_type string
+---@field private _plugdata? vim.pack.PlugData
 ---@field private _state parcel.State
----@field private _license? string
----@field private _source? string
----@field private _description? string
----@field private _external_dependencies? parcel.ExternalDependency[]
----@field private _highlight parcel.Highlight
 ---@field private _errors parcel.ParcelError[]
-local Parcel = {
-    issues_url = nil,
-    pulls_url = nil,
-}
+local Parcel = {}
 
 Parcel.__index = Parcel
 
 ---@enum parcel.State
 Parcel.State = {
-    Installed = "installed",
-    NotInstalled = "not_installed",
+    Active = "active",
+    Inactive = "inactive",
     Updating = "updating",
     UpdatesAvailable = "updates_available",
     Failed = "failed",
@@ -40,23 +24,17 @@ Parcel.State = {
 
 ---@type parcel.Parcel
 local parcel_defaults = {
-    url = nil,
-    issues_url = nil,
-    pulls_url = nil,
-    _state = Parcel.State.NotInstalled,
+    _source_type = "git",
+    _errors = {},
 }
 
 function Parcel:new(args)
-    -- if parcel.version then
-    --     parcel.version = vim.version.parse(parcel.version)
-    -- end
-
     local spec = args.spec or {}
 
     return setmetatable(vim.tbl_extend("force", parcel_defaults, {
         _highlight = {},
-        _spec = spec,
-        _cleaned_name = nil,
+        _plugdata = spec,
+        _state = Parcel.State.Inactive,
         _errors = {},
     }), Parcel)
 end
@@ -64,7 +42,7 @@ end
 ---@param error string
 ---@param context table?
 function Parcel:push_error(error, context)
-    self:set_state(Parcel.State.Failed)
+    -- self:set_state(Parcel.State.Failed)
 
     table.insert(self._errors, {
         message = error,
@@ -76,101 +54,60 @@ function Parcel:errors()
     return self._errors
 end
 
-function Parcel:iter_dependencies()
-    ---@diagnostic disable-next-line: undefined-field
-    return ipairs(self.dependencies)
-end
-
-function Parcel:iter_ext_dependencies()
-    ---@diagnostic disable-next-line: undefined-field
-    return ipairs(self:external_dependencies())
-end
-
----@return parcel.Spec
+---@return vim.pack.Spec?
 function Parcel:spec()
-    -- TODO: Copy spec or set metatable to disallow mutation
-    return self._spec
+    return self._plugdata and self._plugdata.spec or {}
 end
 
-function Parcel:spec_errors()
-    return self._spec:errors()
+function Parcel:active()
+    return self._plugdata.active or false
+end
+
+function Parcel:revision()
+    return self._plugdata.rev
+end
+
+---@return string
+function Parcel:name()
+    return self:spec().name
+end
+
+---@return string
+function Parcel:source_url()
+    return self:spec().src
+end
+
+---@return string
+function Parcel:path()
+    return self._plugdata.path
+end
+
+---@return string | vim.VersionRange
+function Parcel:version()
+    return self:spec().version
+end
+
+---@return boolean
+function Parcel:pinned()
+    return utils.git.is_sha(self:version())
+end
+
+---@return boolean
+function Parcel:disabled()
+    return false
+end
+
+function Parcel:source()
+    return "git"
 end
 
 function Parcel:state()
     return self._state
 end
 
----@param new_state parcel.State
-function Parcel:set_state(new_state)
-    self._state = new_state
-end
-
----@return string
-function Parcel:name()
-    return self.packspec and self.packspec.package or self._spec:name()
-end
-
-function Parcel:clean_name()
-    if not self._spec:validated() then
-        return nil
-    end
-
-    local name = self._spec:name()
-
-    if self._spec:source_name() == "dev" then
-        name = vim.fn.fnamemodify(name, ":t")
-    end
-
-    -- TODO: Doesn't work for szw/vim-maximizer
-    return utils.clean_parcel_name(name)
-end
-
-function Parcel:path()
-    if self._spec:source_name() == "dev" then
-        return self:name()
-    end
-
-    return Path.join(config.path, self:source_name(), self:name())
-end
-
-function Parcel:pinned()
-    return self._pinned
-end
-
-function Parcel:toggle_pinned()
-    self._pinned = not self._pinned
-end
-
-function Parcel:disabled()
-    return self._disabled
-end
-
-function Parcel:toggle_disabled()
-    self._disabled = not self._disabled
-end
-
-function Parcel:source_name()
-    return self.packspec and self.packspec.repository.type or self._spec:source_name()
-end
-
-function Parcel:version()
-    return self.packspec and self.packspec.package or self._spec.version
-end
-
-function Parcel:license()
-    return self.packspec and self.packspec.description or nil
-end
-
-function Parcel:description()
-    return self.packspec and self.packspec.description.summary or nil
-end
-
-function Parcel:dependencies()
-    return self.packspec and self.packspec.dependencies or {}
-end
-
-function Parcel:external_dependencies()
-    return self.packspec and self.packspec.external_dependencies or {}
+---@param state parcel.State
+function Parcel:set_state(state)
+    self._state = state
 end
 
 function Parcel:__newindex(key, value)

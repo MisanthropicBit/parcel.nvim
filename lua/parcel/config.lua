@@ -13,31 +13,31 @@ local config_loaded = false
 ---@field ui parcel.UiConfig
 
 local default_config = {
-    dir = vim.fn.stdpath("data"),
     log_level = vim.log.levels.WARN,
-    max_concurrency = 4,
     ui = {
         animated = true,
         animation_update = 100,
+        columns = {
+            "state",
+            "pinned",
+            "package_icon",
+            "name",
+            "version",
+            "revision",
+        },
         icons = {
             parcel = "",
             pinned = "󰐃",
-            external_dependency = "",
             version = { left = "", right = "" },
             state = {
-                installed = "",
-                not_installed = "󱂰",
-                loaded = "",
-                not_loaded = "",
+                active = "",
+                inactive = "",
                 failed = "",
-                updateable = "󰚰",
+                updateable = "",
                 updating = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'},
             },
             sources = {
-                dev = "",
                 git = "󰊢",
-                luarocks = "",
-                unknown_source = "",
             },
         },
         highlights = {
@@ -50,6 +50,8 @@ local default_config = {
             parcel = "Special",
             pinned = "Identifier",
             dev = "Identifier",
+            source = "Special",
+            version = "Type",
         },
         mappings = {
             collapse_all = "c",
@@ -57,8 +59,6 @@ local default_config = {
             expand = "o",
             explain = "x",
             help = "g?",
-            install = "i",
-            install_all = "I",
             log = "L",
             next = "J",
             pin = "p",
@@ -68,16 +68,7 @@ local default_config = {
         },
         float = {
             padding = 0,
-            border = { -- TODO: Or just 'rounded'?
-                { "╭", "FloatBorder" },
-                { "─", "FloatBorder" },
-                { "╮", "FloatBorder" },
-                { "│", "FloatBorder" },
-                { "╯", "FloatBorder" },
-                { "─", "FloatBorder" },
-                { "╰", "FloatBorder" },
-                { "│", "FloatBorder" },
-            },
+            border = "rounded",
             mappings = {},
             options = {},
         },
@@ -147,6 +138,7 @@ function config.setup(_user_config)
     user_config = vim.tbl_deep_extend("force", default_config, _user_config or {})
     user_config = vim.tbl_deep_extend("force", user_config, non_configurable_options)
 
+    -- TODO: Move to constants or somewhere else
     user_config.path = Path.join(vim.fn.stdpath("data"), "parcel")
     user_config.namespace = vim.api.nvim_create_namespace("parcel")
 
