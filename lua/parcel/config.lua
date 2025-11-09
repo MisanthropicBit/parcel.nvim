@@ -14,6 +14,7 @@ local config_loaded = false
 
 local default_config = {
     log_level = vim.log.levels.WARN,
+    update_timeout_ms = 10000,
     ui = {
         animated = true,
         animation_update = 100,
@@ -28,6 +29,7 @@ local default_config = {
         icons = {
             parcel = "",
             pinned = "󰐃",
+            bullet = "●",
             version = { left = "", right = "" },
             state = {
                 active = "",
@@ -55,16 +57,17 @@ local default_config = {
         },
         mappings = {
             collapse_all = "c",
-            disable = "d",
+            delete = "x",
+            -- disable = "d",
             expand = "o",
-            explain = "x",
             help = "g?",
             log = "L",
             next = "J",
-            pin = "p",
             previous = "K",
             update = "u",
             update_all = "U",
+            update_force = "f",
+            update_force_all = "F",
         },
         float = {
             padding = 0,

@@ -1,6 +1,7 @@
 local values = {
+    augroup = vim.api.nvim_create_augroup("parcel.augroup", {}),
     namespace = vim.api.nvim_create_namespace("parcel"),
-    lockfile = vim.env.XDG_CONFIG_HOME .. "/nvim/nvim-pack-lock.json.",
+    lockfile = vim.fn.stdpath("config") .. "/nvim/nvim-pack-lock.json.",
     version = "0.1.0",
 }
 

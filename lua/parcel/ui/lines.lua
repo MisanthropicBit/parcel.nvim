@@ -1,4 +1,3 @@
-local compat = require("parcel.compat")
 local config = require("parcel.config")
 
 --- An optionally highlighted piece of text
@@ -8,40 +7,42 @@ local config = require("parcel.config")
 
 --- A wrapper class around an array of formatted lines
 ---@class parcel.Lines
----@field _offset integer
+---@field _buffer integer
+---@field _row integer the start row for drawing lines
 ---@field _indent integer
 ---@field _sep string
 ---@field _line_count integer
----@field _rows (parcel.Text[] | parcel.Grid)[]
+---@field _rows (parcel.Text[] | parcel.Grid | parcel.Label)[]
 local Lines = {
-    _offset = 0,
+    _row = 0,
     _sep = "",
     _indent = 0,
 }
 
+Lines.__index = Lines
+
 ---@class parcel.LinesOptions
----@field offset? integer
+---@field buffer? integer
+---@field row? integer
 ---@field indent? integer
 ---@field sep? string
 
 ---@param options? parcel.LinesOptions
 ---@return parcel.Lines
-function Lines:new(options)
+function Lines.new(options)
     local _options = options or {}
 
-    local lines = {
-        _offset = _options.offset,
+    return setmetatable({
+        _buffer = _options.buffer or 0,
+        _row = _options.row or 0,
         _indent = _options.indent,
         _sep = _options.sep,
         _line_count = 0,
         _rows = { {} },
-    }
-    self.__index = self
-
-    return setmetatable(lines, self)
+    }, Lines)
 end
 
----@param value string | string[] | parcel.Grid
+---@param value string | string[] | parcel.UiElement
 ---@param hl? string
 ---@param options? table
 ---@return parcel.Lines
@@ -52,6 +53,7 @@ function Lines:add(value, hl, options)
             value = value:format(unpack(options.args))
         end
 
+        -- TODO: Expand highlight to take fg and bg
         value = { value = value, hl = hl }
     end
 
@@ -71,65 +73,60 @@ end
 
 ---@param count integer?
 function Lines:newlines(count)
-    for i = 1, count or 1, 1 do
+    for i = 1, count or 1 do
         table.insert(self._rows, {})
     end
 
     return self
 end
 
+---@return integer
 function Lines:row_count()
     return #self._rows
 end
 
+---@private
 ---@param line string
 ---@return string
-function Lines:_render_line(line)
+function Lines:render_line(line)
     return (" "):rep(self._indent) .. self._sep .. line
 end
 
+-- TODO: Pass buffer and lnum to constructor instead
 ---@param buffer integer
----@param lnum? integer
-function Lines:render(buffer, lnum)
+function Lines:render(buffer)
     local lines = {}
 
-    -- Construct rendered string
+    -- 1. Construct rendered string
     for _, row in ipairs(self._rows) do
         if #row == 0 then
             -- Empty newline
-            table.insert(lines, self:_render_line(""))
+            table.insert(lines, self:render_line(""))
         elseif row[1].value ~= nil then
             -- Line is a list of text elements
             local line = vim.tbl_map(function(text)
                 return text.value
             end, row)
 
-            table.insert(lines, self:_render_line(table.concat(line)))
+            table.insert(lines, self:render_line(table.concat(line)))
         else
             -- Line is an element that can render itself
-            ---@diagnostic disable-next-line: undefined-field
-            vim.list_extend(lines, row[1]:render(self._indent, 0))
+            local ui_element = row[1]
+            -- TODO: Proper cast
+            vim.list_extend(lines, ui_element:render(self._indent, 0))
         end
     end
 
-    if lnum then
-        vim.api.nvim_buf_set_lines(buffer, lnum - 1, lnum - 1, true, lines)
-    else
-        vim.api.nvim_buf_set_lines(buffer, 0, -1, true, lines)
-    end
+    -- 2. Set lines in buffer
+    vim.api.nvim_buf_set_lines(buffer, self._row, self._row, true, lines)
 
     self._line_count = #lines
+    local lnum = self._row
 
-    if not compat.extmarks then
-        -- TODO: Notify user
-    end
-
-    local _lnum = lnum or 1
-
-    -- Set any highlights via extended marks
+    -- 3. Set extended marks
     for _, row in ipairs(self._rows) do
         if #row == 0 then
-            _lnum = _lnum + 1
+            lnum = lnum + 1
         elseif row[1].value ~= nil then
             local col = self._indent + vim.fn.strlen(self._sep)
 
@@ -140,37 +137,26 @@ function Lines:render(buffer, lnum)
                 if text.hl ~= nil then
                     local extmark = { hl_group = text.hl, end_col = col }
 
-                    vim.api.nvim_buf_set_extmark(
-                        buffer,
-                        config.namespace,
-                        _lnum - 1,
-                        start_col,
-                        extmark
-                    )
+                    -- TODO: Do we need to do this every time?
+                    vim.api.nvim_buf_set_extmark(buffer, config.namespace, lnum, start_col, extmark)
                 end
             end
 
-            _lnum = _lnum + 1
+            lnum = lnum + 1
         else
             -- Line is an element that can set marks itself
             ---@diagnostic disable-next-line: undefined-field
             row[1]:set_highlights()
 
             ---@diagnostic disable-next-line: undefined-field
-            _lnum = _lnum + #row[1]
+            lnum = lnum + #row[1]
         end
     end
 end
 
-function Lines:clear(buffer, lnum)
+function Lines:clear()
     if self._line_count > 0 then
-        vim.api.nvim_buf_set_lines(
-            buffer,
-            lnum - 1,
-            lnum + self._line_count - 1,
-            true,
-            {}
-        )
+        vim.api.nvim_buf_set_lines(self._buffer, self._row, self._row + self._line_count, true, {})
         self._line_count = 0
     end
 end

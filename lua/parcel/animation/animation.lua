@@ -1,4 +1,5 @@
 local Easing = require("parcel.animation.easing")
+local utils = require("parcel.utils")
 
 ---@class parcel.Animation
 ---@field _timer     uv.uv_timer_t?
@@ -42,9 +43,9 @@ function Animation.new(options)
     vim.validate("options.duration", options.duration, "number", true)
     vim.validate("options.easing", options.easing, "function", true)
     vim.validate("options.callback", options.callback, "function")
-    vim.validate("options.on_finish", options.on_finish, "function")
+    vim.validate("options.on_finish", options.on_finish, "function", true)
 
-    return setmetatable(vim.tbl_extend("force", default_options, options), Animation)
+    return setmetatable(utils.privatise_options(vim.tbl_extend("force", default_options, options)), Animation)
 end
 
 function Animation:start()
@@ -53,7 +54,7 @@ function Animation:start()
     end
 
     self._value = 0
-    self._start = vim.uv.hrtime()
+    self._start_time = vim.uv.hrtime()
 
     self._timer:start(
         self._delay,
@@ -66,12 +67,17 @@ end
 
 ---@return number
 function Animation:elapsed()
-    return self._start and vim.uv.hrtime() - self.start or 0
+    if not self._start_time then
+        return 0
+    end
+
+    return (vim.uv.hrtime() - self._start_time) / 1000000
 end
 
 ---@private
 function Animation:on_tick()
     local elapsed = self:elapsed()
+    vim.print({ "tick", elapsed / self._duration })
     self._value = elapsed / self._duration
 
     if self._callback(self._easing(self._value)) == true then
@@ -91,7 +97,7 @@ function Animation:on_tick()
 end
 
 function Animation:stop()
-    if not self._start then
+    if not self._start_time then
         error("Animation was never started")
     end
 
@@ -112,6 +118,8 @@ end
 ---@param options parcel.AnimationOptionsNoCallback
 ---@return parcel.Animation
 function Animation.text(frames, callback, options)
+    local frame_idx = 1
+
     local _options = vim.tbl_extend(
         "force",
         {
@@ -121,9 +129,13 @@ function Animation.text(frames, callback, options)
         options,
         {
             callback = function(value)
-                local frame = frames[math.floor(value * #frames + 0.5)]
+                -- local frame_idx = (math.floor(value * #frames + 0.5) % #frames) + 1
+                local frame = frames[frame_idx]
+                -- vim.print(vim.inspect({ "frames", frames }))
+                -- vim.print(vim.inspect({ "idx", frame_idx }))
 
                 callback(frame)
+                frame_idx = (frame_idx + 1) % #frames + 1
             end,
         }
     )

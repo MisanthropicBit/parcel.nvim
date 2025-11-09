@@ -8,14 +8,18 @@ local Row = require("parcel.ui.row")
 ---@field start_col integer
 ---@field end_col integer
 
+-- TODO: Use local rows/cols instead of highlight id?
+
+---@alias parcel.LocalGridRow integer
+---@alias parcel.LocalGridCol integer
+
 ---@class parcel.Grid
 ---@field _buffer integer
----@field _lnum integer
----@field _indent integer
----@field _sep string
+---@field _row integer Row to render grid at
+---@field _col integer Column to render grid at
+---@field _sep string Separator between columns
 ---@field _rows parcel.Row[]
 ---@field _line_extmarks parcel.Highlight[]
----@field _dirty boolean
 local Grid = {}
 
 Grid.__index = Grid
@@ -23,52 +27,51 @@ Grid.__index = Grid
 function Grid.new(options)
     return setmetatable({
         _buffer = options.buffer or vim.api.nvim_get_current_buf(),
-        _lnum = options.lnum or 0,
-        _indent = options.indent or 0,
+        _row = options.row or 0,
+        _col = options.col or 0,
         _sep = options.sep or "",
         _rows = {},
-        _column_widths = {},
+        _cell_widths = {},
         _line_extmarks = {},
         _extmarks = {},
-        _dirty = false,
     }, Grid)
 end
 
 ---@private
 function Grid:ensure_render()
-    assert(#self._column_widths > 0, "Must render grid before calling column_offset")
+    assert(#self._column_max_widths > 0, "Must render grid before calling cell_offset")
 end
 
----@return integer
-function Grid:__len()
-    return #self._rows
-end
-
----@param columns parcel.Column[]
+---@param cells parcel.Cell[]
 ---@param idx integer?
-function Grid:add_row(columns, idx)
-    if #columns == 0 then
-        return
-    end
+function Grid:add_row(cells, idx)
+    assert(#cells > 0, "Must provide at least one cell for row")
 
-    local row = Row:new()
-    row:set_columns(columns)
-
-    table.insert(self._rows, idx or #self._rows + 1, row)
+    table.insert(self._rows, idx or #self._rows + 1, Row.new({ cells = cells }))
 end
 
 ---@param idx integer
----@return parcel.Row
+---@return parcel.Row?
 function Grid:row(idx)
+    if idx < 1 or idx > #self._rows then
+        return nil
+    end
+
     return self._rows[idx]
 end
 
 ---@param idx integer
----@return integer
-function Grid:column_offset(idx)
+---@return integer?
+function Grid:cell_offset(idx)
+    -- TODO: Rename
+
     self:ensure_render()
 
-    return self._column_widths[idx].len
+    if idx < 1 or idx > #self._column_max_widths then
+        return nil
+    end
+
+    return self._column_max_widths[idx].len
 end
 
 ---@private
@@ -76,15 +79,15 @@ end
 ---    lnum: integer,
 ---    start_col: integer,
 ---    end_col: integer,
----    column: any,
+---    cell: any,
 --- }
 function Grid:set_highlight(options)
     -- Create an extmark if there is a highlight or if we are setting the first
-    -- column (for jumping between parcels in the ui)
-    if options.column.hl ~= nil or options.start_col == 0 then
+    -- cell (for jumping between parcels in the ui)
+    if options.cell.hl ~= nil or options.start_col == 0 then
         local highlight = {
-            hl_group = options.column.hl,
-            lnum = self._lnum + options.lnum - 1,
+            hl_group = options.cell.hl,
+            lnum = self._row + options.lnum - 1,
             start_col = options.start_col,
             end_col = options.end_col,
         }
@@ -115,7 +118,7 @@ end
 ---@param id integer
 ---@return vim.api.keyset.get_extmark_item_by_id
 function Grid:get_extmark_by_id(id)
-    return vim.api.nvim_buf_get_extmark_by_id(self._buffer, config.namespace, id, {})
+    return vim.api.nvim_buf_get_extmark_by_id(self._buffer, config.namespace, id, { details = true })
 end
 
 ---@private
@@ -191,14 +194,15 @@ end
 ---@param col integer
 ---@return any
 function Grid:get_cell(row, col)
-    return self._rows[row]:column(col).value
+    return self._rows[row]:get(col).value
 end
 
 ---@param value any
 ---@param row integer
 ---@param col integer
 function Grid:set_cell(value, row, col)
-    self._rows[row]:column(col):set_value(value)
+    -- TODO: Create a new method where row is a line number instead
+    self._rows[self._row - row + 1]:get(col):set_value(value)
 end
 
 ---@param id integer
@@ -206,61 +210,94 @@ end
 ---@param col integer
 ---@param group string?
 function Grid:render_col(id, value, col, group)
-    -- local grid_row = self._extmarks[id]
-    -- local rendered_row = self:render_row(self._rows[grid_row])
-    local extmark = self:get_extmark_by_id(id)
-    local _row = extmark[1]
-    local old_value = self:get_cell(_row, col)
-
-    if old_value == nil then
+    -- TODO: How do we specific (row, col) if things are based on extmark ids?
+    -- * Map id to (row, col, ...end values) and vice versa?
+    -- TODO: Create a new method for non-id version?
+    if not vim.api.nvim_buf_is_valid(self._buffer) then
         return
     end
 
-    if vim.api.nvim_buf_is_valid(self._buffer) then
-        local bytelen = vim.fn.strlen(old_value)
-        vim.api.nvim_buf_set_text(self._buffer, _row, 0, _row, bytelen, { value })
+    local extmark = self:get_extmark_by_id(id)
+    local _row, _col = extmark[1], extmark[2]
+    local row = self._rows[1]
+    local cell = row:get(1)
 
-        vim.api.nvim_buf_set_extmark(self._buffer, config.namespace, _row, 0, {
-            hl_group = group,
-            end_col = bytelen,
-        })
+    if not cell then
+        return
     end
 
-    self:set_cell(value, _row, col)
+    local old_bytelen = cell:bytesize()
+    cell:set_value(value)
+    local text = cell:render(self._column_max_widths[1].len)
+
+    -- vim.print(vim.inspect({ _row, _col, end_col, vim.fn.strlen(value) }))
+    -- local old_value = self:get_cell(self._row - _row + 1, col)
+    --
+    -- -- TODO: Allow for missing old value
+    -- if old_value == nil then
+    --     return
+    -- end
+
+    -- 
+    -- 
+    -- vim-bracketed-paste
+    -- 77e5220
+    -- 󰐃
+    --
+    -- { "tick", 0.00126021 }
+    -- { "frames", { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" } }
+    -- { "idx", 1 }
+    -- ⠋
+    -- { 4, 0, 4, 5 }
+    -- { "tick", 0.50585952 }
+    -- { "frames", { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" } }
+    -- { "idx", 6 }
+    -- ⠴
+    -- { 4, 0, 4, 7 }
+    -- { "tick", 1.0060583 }
+    -- { "frames", { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" } }
+    -- { "idx", 1 }
+    -- ⠋
+    -- { 4, 0, 4, 9 }
+    vim.print(vim.inspect({ _row, _col, _row, old_bytelen }))
+    vim.api.nvim_buf_set_text(self._buffer, _row, _col, _row, _col + old_bytelen, { text })
+
+    vim.api.nvim_buf_set_extmark(self._buffer, config.namespace, _row, _col, {
+        -- hl_group = group,
+        id = id,
+        end_row = _row,
+        end_col = _col + old_bytelen
+    })
+
+    -- self._column_max_widths[1].len = math.max(self._column_max_widths[1].len, cell:size())
+
+    -- self:set_cell(value, _row, col)
 end
 
 ---@private
 ---@param row parcel.Row
 function Grid:render_row(row)
-    return (" "):rep(self._indent) .. self._sep .. row:render(self._column_widths)
+    return (" "):rep(self._col) .. self._sep .. row:render(self._column_max_widths)
 end
 
-function Grid:render(row, col)
-    local lines = {}
-    self._column_widths = {}
 
-    -- TODO: Handle uneven columns
+---@param row integer
+---@param col integer
+function Grid:render(row, col)
+    -- TODO: Handle uneven cells
+    local lines = {}
+    self._column_max_widths = {}
 
     -- Find the maximum width of all columns
     for _, _row in ipairs(self._rows) do
         assert(Row.is_row(_row), "Non-row value found in grid")
-        local col_offset = 0
 
-        for col_idx, column in _row:iter() do
-            if not self._column_widths[col_idx] then
-                self._column_widths[col_idx] = {
-                    len = 0,
-                    bytelen = 0,
-                    col = 0,
-                }
+        for col_idx, cell in _row:iter() do
+            if not self._column_max_widths[col_idx] then
+                self._column_max_widths[col_idx] = { len = 0 }
             end
 
-            self._column_widths[col_idx].len = math.max(self._column_widths[col_idx].len, column:size())
-
-            self._column_widths[col_idx].bytelen = math.max(self._column_widths[col_idx].bytelen, column:bytesize())
-
-            self._column_widths[col_idx].col = col_offset
-            col_offset = col_offset + column:bytesize()
+            self._column_max_widths[col_idx].len = math.max(self._column_max_widths[col_idx].len, cell:size())
         end
     end
 
@@ -278,14 +315,14 @@ function Grid:set_highlights()
 
     for lnum, row in ipairs(self._rows) do
         assert(Row.is_row(row), "Non-row value found in grid")
-        -- TODO: This won't work for _indent > 0
-        local col = 0 -- self._indent + vim.fn.strlen(self._sep)
+        -- TODO: This won't work for _col > 0
+        local col = 0 -- self._col + vim.fn.strlen(self._sep)
 
-        for _, column in row:iter() do
+        for _, cell in row:iter() do
             local start_col = col
-            col = col + column:bytesize()
+            col = col + cell:bytesize()
 
-            self:set_highlight({ lnum = lnum, start_col = start_col, end_col = col, column = column })
+            self:set_highlight({ lnum = lnum, start_col = start_col, end_col = col, cell = cell })
         end
     end
 end

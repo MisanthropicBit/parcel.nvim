@@ -1,7 +1,8 @@
 local git = {}
 
-function git.is_sha(arg)
-    return false
+---@param value unknown
+function git.is_sha(value)
+    return type(value) == "string" and vim.fn.match(value, [[^[a-zA-Z0-9]\{,40}$]])
 end
 
 return git

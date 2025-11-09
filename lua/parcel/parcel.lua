@@ -28,13 +28,13 @@ local parcel_defaults = {
     _errors = {},
 }
 
-function Parcel:new(args)
+function Parcel.new(args)
     local spec = args.spec or {}
 
     return setmetatable(vim.tbl_extend("force", parcel_defaults, {
         _highlight = {},
         _plugdata = spec,
-        _state = Parcel.State.Inactive,
+        _state = spec.active and Parcel.State.Active or Parcel.State.Inactive,
         _errors = {},
     }), Parcel)
 end

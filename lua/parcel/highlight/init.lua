@@ -1,11 +1,34 @@
 local highlight = {}
 
+local constants = require("parcel.constants")
+
 local hl_cache = {}
+
+---@class parcel.HighlightOptions
+---@field fg string?
+---@field bg string?
 
 ---@param color string
 ---@return boolean
 local function is_hex_color(color)
-    return color:match("^#[a-fA-F0-9]+$") ~= nil
+    return color and color:match("^#[a-fA-F0-9]+$") ~= nil
+end
+
+---@param options parcel.HighlightOptions
+---@return string
+local function create_cache_key(options)
+    local cache_key = { "Parcel" }
+
+    -- Strip '#' from hex colors as they are not allowed in highlight group names
+    if options.fg then
+        table.insert(cache_key, "fg" .. (is_hex_color(options.fg) and options.fg:sub(2) or options.fg))
+    end
+
+    if options.bg then
+        table.insert(cache_key, "bg" .. (is_hex_color(options.bg) and options.bg:sub(2) or options.bg))
+    end
+
+    return table.concat(cache_key, "_")
 end
 
 function highlight.has_hl(name)
@@ -45,21 +68,24 @@ local function resolve_color_spec(ns_id, key, options)
     return { [key] = options[key][2] }
 end
 
----@param options table
+---@param options parcel.HighlightOptions
 function highlight.create(options)
-    -- TODO: Separate namespaces for different things
-    local exists = highlight.get_hl(ns_id, { name = name })
+    local cache_key = create_cache_key(options)
 
-    if table.maxn(exists) ~= 0 then
-        return exists
+    if hl_cache[cache_key] then
+        return hl_cache[cache_key]
     end
 
     local colors = { force = true, default = false }
 
-    colors = vim.tbl_extend("force", colors, resolve_color_spec(ns_id, "fg", options))
-    colors = vim.tbl_extend("force", colors, resolve_color_spec(ns_id, "bg", options))
+    -- TODO: Separate namespaces for different things
+    colors = vim.tbl_extend("force", colors, options)
+    colors = vim.tbl_extend("force", colors, options)
 
-    highlight.set_hl(ns_id, name, colors)
+    vim.print(cache_key)
+    highlight.set_hl(0, cache_key, colors)
+
+    return cache_key
 end
 
 return highlight

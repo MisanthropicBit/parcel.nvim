@@ -8,6 +8,19 @@ function utils.get_script_path()
     return str
 end
 
+-- Returns a copy of a table where field names have been prefixed by underscore
+---@param tbl table<string, unknown>
+---@return table<string, unknown>
+function utils.privatise_options(tbl)
+    local private = {}
+
+    for key, value in pairs(tbl) do
+        private["_" .. key] = value
+    end
+
+    return private
+end
+
 utils.git = require("parcel.utils.git")
 utils.str = require("parcel.utils.str")
 

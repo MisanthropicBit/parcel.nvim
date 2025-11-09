@@ -1,42 +1,60 @@
 ---@class parcel.Row
+---@field _cells parcel.Cell[]
 local Row = {}
 
 Row.__index = Row
 
-local Column = require("parcel.ui.column")
+local Cell = require("parcel.ui.cell")
 
-function Row:new()
-    return setmetatable({
-        _columns = {},
-    }, Row)
+---@class parcel.RowOptions
+---@field cells parcel.CellOptions[]
+
+---@param options parcel.RowOptions?
+---@return parcel.Row
+function Row.new(options)
+    local row = setmetatable({ _cells = {} }, Row)
+
+    if options and options.cells then
+        row:set_cells(options.cells)
+    end
+
+    return row
 end
 
-function Row.is_row(row)
-    return getmetatable(row) == Row
+---@param value unknown
+---@return boolean
+function Row.is_row(value)
+    return getmetatable(value) == Row
 end
 
----@param columns table[]
-function Row:set_columns(columns)
-    self._columns = vim.tbl_map(function(options)
-        return Column:new(options[1], options)
-    end, columns)
+---@param cells parcel.CellOptions[]
+function Row:set_cells(cells)
+    self._cells = vim.tbl_map(function(options)
+        return Cell.new(options)
+    end, cells)
 end
 
-function Row:column(idx)
-    return self._columns[idx]
+---@param idx integer
+---@return parcel.Cell?
+function Row:get(idx)
+    if idx < 1 or idx > #self._cells then
+        return nil
+    end
+
+    return self._cells[idx]
 end
 
 function Row:iter()
-    return ipairs(self._columns)
+    return ipairs(self._cells)
 end
 
----@param max_widths integer[]
+---@param max_widths { len: integer }[]
 ---@return string
 function Row:render(max_widths)
     local result = {}
 
-    for idx = 1, #max_widths do
-        table.insert(result, self._columns[idx]:render(max_widths[idx]))
+    for idx, cell in ipairs(self._cells) do
+        table.insert(result, cell:render(max_widths[idx].len))
     end
 
     return table.concat(result)
