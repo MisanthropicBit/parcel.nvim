@@ -82,7 +82,6 @@ function highlight.create(options)
     colors = vim.tbl_extend("force", colors, options)
     colors = vim.tbl_extend("force", colors, options)
 
-    vim.print(cache_key)
     highlight.set_hl(0, cache_key, colors)
 
     return cache_key

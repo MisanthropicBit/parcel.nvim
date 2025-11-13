@@ -77,7 +77,6 @@ end
 ---@private
 function Animation:on_tick()
     local elapsed = self:elapsed()
-    vim.print({ "tick", elapsed / self._duration })
     self._value = elapsed / self._duration
 
     if self._callback(self._easing(self._value)) == true then
@@ -129,12 +128,8 @@ function Animation.text(frames, callback, options)
         options,
         {
             callback = function(value)
-                -- local frame_idx = (math.floor(value * #frames + 0.5) % #frames) + 1
-                local frame = frames[frame_idx]
-                -- vim.print(vim.inspect({ "frames", frames }))
-                -- vim.print(vim.inspect({ "idx", frame_idx }))
+                callback(frames[frame_idx])
 
-                callback(frame)
                 frame_idx = (frame_idx + 1) % #frames + 1
             end,
         }

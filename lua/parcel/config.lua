@@ -43,8 +43,8 @@ local default_config = {
             },
         },
         highlights = {
-            installed = "diffAdded",
-            not_installed = "ErrorMsg",
+            active = "diffAdded",
+            inactive = "ErrorMsg",
             updating = "WarningMsg",
             updates_available = "",
             failed = "ErrorMsg",

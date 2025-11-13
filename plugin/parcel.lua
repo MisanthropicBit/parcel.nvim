@@ -13,6 +13,8 @@ end
 
 ---@param options vim.api.keyset.create_user_command.command_args
 local function run_command(options)
+    require("parcel").setup()
+
     local fargs = options.fargs
     local subcommand = table.remove(fargs, 1)
 

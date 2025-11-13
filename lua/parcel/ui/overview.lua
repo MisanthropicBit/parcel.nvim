@@ -2,18 +2,19 @@ local constants = require("parcel.constants")
 local Spinner = require("parcel.animation.spinner")
 local async = require("parcel.async")
 local config = require("parcel.config")
+local Label = require("parcel.ui.label")
 local Grid = require("parcel.ui.grid")
 local Lines = require("parcel.ui.lines")
 local notify = require("parcel.notify")
 local sources = require("parcel.sources")
 local state = require("parcel.state")
-local Task = require("parcel.tasks")
 local Parcel = require("parcel.parcel")
 local update_checker = require("parcel.update_checker")
 local utils = require("parcel.utils")
 
--- TODO:
--- * Listen to PackChanged and update overview if packages are installed/deleted
+-- TODO: Lookup column indices via column names
+-- TODO: Allow marking packages for bulk operations
+-- TODO: Use ui.Label for versions
 
 ---@class parcel.OnKeyCallbackContext
 ---@field parcel   parcel.Parcel
@@ -23,12 +24,16 @@ local utils = require("parcel.utils")
 
 ---@alias parcel.OnKeyCallback fun(overview: parcel.Overview, context: parcel.OnKeyCallbackContext)
 
----@alias parcel.ChangeNotifcation parcel.StateChangeNotification
+---@alias parcel.ChangeNotifcation parcel.StateChangeNotification | parcel.StateUpdateAvailableNotification
 
 ---@class parcel.StateChangeNotification
 ---@field type  "state"
 ---@field name  string
 ---@field state parcel.State
+
+---@class parcel.StateUpdateAvailableNotification
+---@field type "update_available"
+---@field parcel parcel.Parcel
 
 ---@type table<string, any>
 local window_options = {
@@ -77,7 +82,6 @@ Overview.__index = Overview
 ---@return parcel.Overview
 function Overview.new()
     return setmetatable({
-        -- lines = Lines.new(),
         parcels_by_extmark = {},
         highlights_by_parcel = {},
         extmarks_by_parcel = {},
@@ -100,6 +104,12 @@ function Overview:open(options)
         self.win_id = vim.api.nvim_get_current_win()
     end
 
+    if not self.lines then
+        self.lines = Lines.new({ buffer = self.buffer })
+    end
+
+    self.lines:clear()
+
     -- Set default window options
     for option, value in pairs(window_options) do
         vim.api.nvim_set_option_value(option, value, { scope = "local", win = self.win_id })
@@ -110,14 +120,42 @@ function Overview:open(options)
         vim.api.nvim_set_option_value(option, value, { buf = self.buffer })
     end
 
+    if config.check_for_updates then
+        -- TODO: When window is hidden, stop update_checker
+        update_checker.start()
+    end
+
+    -- Listen to state change events and re-render the ui if necessary
+    state.listen(function(data)
+        if data.kind == "update" then
+            return
+        end
+
+        if data.kind == "delete" then
+            local id = self.highlights_by_parcel[data.spec.name].id
+            local section = self.sections[id]
+
+            if section.visible then
+                self:toggle_expand(self.parcels_by_extmark[id])
+            end
+        end
+
+        self:render()
+    end)
+
+    self:set_keymaps()
+end
+
+---@private
+function Overview:set_keymaps()
     local mappings = config.ui.mappings
 
     -- self:on_key(mappings.disable, function(_self, context)
-        -- TODO: We could disable by:
-        -- * Moving the package out of start/ or opt/
-        -- * Remove from runtimepath
-        --
-        -- How do we disable the plugin if it is already loaded?
+    -- TODO: We could disable by:
+    -- * Moving the package out of start/ or opt/
+    -- * Remove from runtimepath
+    --
+    -- How do we disable the plugin if it is already loaded?
     -- end)
 
     -- self:on_key(mappgins.reload, ...)
@@ -176,7 +214,15 @@ function Overview:open(options)
         _self:update_parcels(state.parcels({ exclude_states = { Parcel.State.Updating } }), context, true)
     end)
 
-    -- self:on_key(mappings.delete, function(self, _context) end)
+    self:on_key(mappings.delete, function(_self, context)
+        if not context.parcel then
+            return
+        end
+
+        -- TODO: Prompt for confirmation
+
+        vim.pack.del({ context.parcel:name() })
+    end)
 
     self:on_key(mappings.expand, function(_self, context)
         if context.parcel then
@@ -199,78 +245,18 @@ function Overview:open(options)
             end
         end
     end)
-
-    -- TODO: Should throttle render instead
-    -- Make sure that we do not call update too often
-    -- self.set_contents = async.utils.throttle(100, self.set_contents)
-
-    -- Set an autocommand to fire on renders
-    vim.api.nvim_create_autocmd("User", {
-        pattern = "ParcelRender",
-        callback = function() end,
-    })
-
-    if config.check_for_updates then
-        update_checker.check(state.parcels())
-    end
 end
 
 ---@param parcels table<string, parcel.Parcel>
 ---@param context parcel.OnKeyCallbackContext
 ---@param force boolean?
 function Overview:update_parcels(parcels, context, force)
-    -- TODO: Throttle calls to render
+    -- TODO: Throttle calls to render for spinner
     -- TODO: Make a utility method in this class to render a grid position
     -- TODO: What happens if the PackChanged evnet never fires or on errors?
     -- PackChanged does not fire if there are no updates so we need a new
     -- event or a timeout.
-    local parcel_count = vim.tbl_count(parcels)
-
-    -- 1. Create spinner animation that updates grid cells
-    local spinner = Spinner.new(config.ui.icons.state.updating, function(frame)
-        for name, _ in pairs(parcels) do
-            local highlight = self.highlights_by_parcel[name]
-            -- vim.print(vim.inspect({ frame, highlight.lnum, 1, self.grid._lnum }))
-            self.grid:render_col(highlight.id, frame, 1)
-        end
-    end, { delta = 100, duration = 5000, on_finish = function()
-        local highlight = self.highlights_by_parcel["vim-bracketed-paste"]
-        self.grid:render_col(highlight.id, "", 1)
-    end}) -- config.update_timeout_ms })
-
-    -- 2. Start animation
-    spinner:start()
-
-    -- 3. Create autocmd that stops animation when all packages have been updated
-    vim.api.nvim_create_autocmd("PackChanged", {
-        group = constants.augroup,
-        ---@param event { data: PackEventData }
-        callback = function(event)
-            vim.print(vim.inspect({ "Got event:", event }))
-
-            if event.data.kind == "update" then
-                local name = event.data.spec.name
-                local updated_parcel = parcels[name]
-
-                if updated_parcel then
-                    -- TODO: Is parcels a reference that updates state?
-                    parcel_count = parcel_count - 1
-
-                    if parcel_count == 0 then
-                        spinner:stop()
-                        local highlight = self.highlights_by_parcel[name]
-                        self.grid:render_col(highlight.id, "", 1)
-                    end
-                end
-            end
-        end,
-    })
-
-    local names = vim.tbl_keys(parcels)
-
-    -- 4. Run vim.pack.update
-    -- TODO: Alternatively, call state.x instead of use a callback for PackChanged events
-    vim.pack.update(names, { force = force })
+    vim.pack.update(vim.tbl_keys(parcels), { force = force })
 end
 
 ---@return boolean
@@ -302,16 +288,16 @@ function Overview:toggle_expand(parcel)
     local section = self.sections[highlight.id]
 
     section.visible = not section.visible
-    local method = section.visible and "render" or "clear"
 
-    section.lines[method](section.lines, self.buffer, lnum + 1)
+    local method = section.visible and "render" or "clear"
+    section.lines[method](section.lines)
 
     -- Set cursor position to the toggled parcel's row
     vim.api.nvim_win_set_cursor(self.win_id, { lnum, 0 })
 end
 
 ---@param parcel parcel.Parcel
----@return parcel.CellOptions[]
+---@return parcel.ui.CellOptions[]
 function Overview:create_parcel_cells(parcel)
     local highlights = config.ui.highlights
     local _icons = config.ui.icons
@@ -324,17 +310,11 @@ function Overview:create_parcel_cells(parcel)
     end
 
     return {
-        { _icons.state[parcel:state()], rpad = 2, hl = highlights[parcel:state()] },
-        { _icons.parcel,                rpad = 2, hl = highlights.parcel },
-        {
-            parcel:name(),
-            align = "left",
-            pad = "auto",
-            min_pad = 1,
-            hl = "String",
-        },
-        { version, rpad = 1,             hl = highlights.version },
-        { pinned,  icon = _icons.pinned, hl = highlights.pinned, rpad = 1 },
+        { _icons.state[parcel:state()], rpad = 2,             hl = highlights[parcel:state()] },
+        { _icons.parcel,                rpad = 2,             hl = highlights.parcel },
+        { parcel:name(),                align = "left",       rpad = 1,                       hl = "String" },
+        { version,                      rpad = 1,             hl = highlights.version },
+        { pinned,                       icon = _icons.pinned, hl = highlights.pinned,         rpad = 1 },
     }
 end
 
@@ -357,21 +337,24 @@ end
 function Overview:add_failed_subsection(parcel, lines)
     local errors = parcel:errors()
 
-    lines:add("%d error(s) encountered", "ErrorMsg", { args = { #errors } }):newlines(2)
+    lines:add({ ("%d error(s) encountered"):format(#errors), hl = "ErrorMsg" }):newlines(2)
 
     for idx, err in ipairs(errors) do
         local is_process_error = err.context.err and err.context.err.code
 
-        lines:add(err.message, "ErrorMsg"):newline()
+        lines:add({ err.message, hl = "ErrorMsg" }):newline()
 
         if is_process_error then
             -- TODO: What to do about newlines in process output?
             lines
-                :add("Process exited with code %d and error message", "WarningMsg", { args = { err.context.err.code } })
+                :add({
+                    ("Process exited with code %d and error message"):format(err.context.err.code),
+                    hl = "WarningMsg",
+                })
                 :newline()
 
             for _, err_line in ipairs(err.context.err.stderr) do
-                lines:add(err_line, nil):newline()
+                lines:add(err_line):newline()
             end
         end
     end
@@ -390,62 +373,21 @@ function Overview:add_subsection(parcel, offset)
     local section = Lines.new({
         buffer = self.buffer,
         row = offset,
-        indent = 2, -- indent,
-        -- TODO: Highlight sep
-        -- sep = section_sep .. " ",
-    })
-
-    local parcel_state = parcel:state()
-
-    local grid = Grid.new({
-        buffer = self.buffer,
-        row = offset,
         col = 2,
     })
 
+    local parcel_state = parcel:state()
+    local grid = Grid.new({ buffer = self.buffer })
+
     -- TODO: Extend so we can add separate highlights for section_bullet and "Name"
-    -- grid:add_row({
-    --     { section_bullet .. " Name", hl = "Keyword" },
-    --     { parcel:name() },
-    -- })
-    --
-    -- grid:add_row({
-    --     { section_bullet .. " Revision", hl = "Keyword" },
-    --     { parcel:revision() },
-    -- })
-    --
-    -- grid:add_row({
-    --     { section_bullet .. " Source", hl = "Keyword" },
-    --     { _icons.sources[parcel:source()] .. " " .. parcel:source_url() },
-    -- })
-    --
-    -- grid:add_row({
-    --     { section_bullet .. " Path", hl = "Keyword" },
-    --     { parcel:path() },
-    -- })
-    --
-    -- section
-    --     :newline()
-    --     :add(grid)
-    --     :newline()
+    grid
+        :add_row({ { "Name", hl = "Keyword" }, { parcel:name() } })
+        :add_row({ { "Version", hl = "Keyword" }, { tostring(parcel:version()) } })
+        :add_row({ { "Revision", hl = "Keyword" }, { parcel:revision() } })
+        :add_row({ { "Source", hl = "Keyword" }, { _icons.sources[parcel:source()] .. " " .. parcel:source_url() } })
+        :add_row({ { "Path", hl = "Keyword" }, { parcel:path() } })
 
-    -- TODO: Use grid for proper alignment
-    section
-        :newline()
-        :add("Name       ", "Keyword", { sep = section_bullet })
-        :add(parcel:name())
-        :newline()
-        :add("Revision   ", "Keyword", { sep = section_bullet })
-        :add(parcel:revision())
-        :newline()
-        :add("Source     ", "Keyword", { sep = section_bullet })
-        :add(_icons.sources[parcel:source()] .. " " .. parcel:source_url())
-        :newline()
-        :add("Path       ", "Keyword", { sep = section_bullet })
-        :add(parcel:path())
-        :newline()
-
-    -- self:add_source_section(parcel, section):newline()
+    section:newline():add(grid):newline()
 
     return section
 end
@@ -454,7 +396,7 @@ end
 ---@param lnum integer
 ---@return integer?, parcel.Parcel?
 function Overview:get_parcel_at_cursor(lnum)
-    local highlight = self.grid:get_nearest(lnum)
+    local highlight = self.grid:get_nearest_row(lnum)
 
     if not highlight then
         return nil, nil
@@ -485,8 +427,12 @@ function Overview:on_key(key, callback)
 end
 
 ---@private
----@param parcels table<string, parcel.Parcel>
+---@param parcels parcel.Parcel[]
 function Overview:set_extmarks(parcels)
+    if #parcels == 0 then
+        return
+    end
+
     -- After each render, map extmarks for each parcel so we can easily
     -- find the nearest parcel under the cursor
     for idx, highlight in ipairs(self.grid:get_line_highlights()) do
@@ -500,7 +446,7 @@ function Overview:set_extmarks(parcels)
         if not self.sections[id] then
             self.sections[id] = {
                 visible = false,
-                lines = self:add_subsection(parcel, self.parcel_row_offset + idx - 1),
+                lines = self:add_subsection(parcel, self.parcel_row_offset + idx),
             }
         end
     end
@@ -508,35 +454,40 @@ end
 
 ---@private
 function Overview:render()
-    local parcels = state.parcels()
-    self.lines = Lines.new({ buffer = self.buffer })
-
-    -- TODO: Add active/inactive counts
-    self.lines
-        :add(("Packages (%d)"):format(#parcels), "Title")
-        :newlines(2)
-        :add("Press g? for help.", "Comment")
-        :newlines(2)
-
-    self.parcel_row_offset = self.lines:row_count()
-
-    if vim.tbl_count(parcels) == 0 then
-        self.lines:add("No packages installed")
+    if not self:visible() then
         return
     end
 
-    -- TODO: Rename to Table
-    self.grid = Grid.new({
-        buffer = self.buffer,
-        row = self.parcel_row_offset,
-    })
+    local parcels = state.parcel_list()
 
-    for idx = 1, #parcels do
-        self.grid:add_row(self:create_parcel_cells(parcels[idx]))
+    self.lines:clear()
+    self.lines:clear_contents()
+
+    -- TODO: Add active/inactive counts
+    self.lines
+        :add({ ("Packages (%d)"):format(#parcels), hl = "Title" })
+        :newline()
+        :add({ "Press g? for help.", hl = "Comment" })
+        :newline()
+
+    self.parcel_row_offset = self.lines:row_count()
+
+    if #parcels == 0 then
+        self.lines:add("No packages installed")
+    else
+        self.grid = Grid.new({
+            buffer = self.buffer,
+            row = self.parcel_row_offset,
+        })
+
+        for idx = 1, #parcels do
+            self.grid:add_row(self:create_parcel_cells(parcels[idx]))
+        end
+
+        self.lines:add(self.grid)
     end
 
-    self.lines:add(self.grid)
-    self.lines:render(self.buffer)
+    self.lines:render()
 
     self:set_extmarks(parcels)
 end

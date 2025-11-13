@@ -2,21 +2,21 @@ local config = require("parcel.config")
 
 --- An optionally highlighted piece of text
 ---@class parcel.Text
----@field value string
----@field hl? string
+---@field [1] string
+---@field hl? parcel.Highlight_
 
 --- A wrapper class around an array of formatted lines
 ---@class parcel.Lines
 ---@field _buffer integer
 ---@field _row integer the start row for drawing lines
----@field _indent integer
+---@field _col integer
 ---@field _sep string
 ---@field _line_count integer
----@field _rows (parcel.Text[] | parcel.Grid | parcel.Label)[]
+---@field _rows (parcel.Text[] | parcel.ui.Grid | parcel.Label)[]
 local Lines = {
     _row = 0,
     _sep = "",
-    _indent = 0,
+    _col = 0,
 }
 
 Lines.__index = Lines
@@ -24,7 +24,7 @@ Lines.__index = Lines
 ---@class parcel.LinesOptions
 ---@field buffer? integer
 ---@field row? integer
----@field indent? integer
+---@field col? integer
 ---@field sep? string
 
 ---@param options? parcel.LinesOptions
@@ -35,29 +35,23 @@ function Lines.new(options)
     return setmetatable({
         _buffer = _options.buffer or 0,
         _row = _options.row or 0,
-        _indent = _options.indent,
+        _col = _options.col,
         _sep = _options.sep,
         _line_count = 0,
-        _rows = { {} },
+        _rows = {},
     }, Lines)
 end
 
----@param value string | string[] | parcel.UiElement
----@param hl? string
----@param options? table
+---@param value string | parcel.Text | parcel.Text[] | parcel.UiElement
 ---@return parcel.Lines
-function Lines:add(value, hl, options)
-    -- Insert into the same line until the newline method is called
+function Lines:add(value)
     if type(value) == "string" then
-        if options and options.args then
-            value = value:format(unpack(options.args))
-        end
-
-        -- TODO: Expand highlight to take fg and bg
-        value = { value = value, hl = hl }
+        table.insert(self._rows, { value })
+    elseif type(value[1]) == "string" then
+        table.insert(self._rows, { value })
+    else
+        table.insert(self._rows, value)
     end
-
-    table.insert(self._rows[#self._rows], value)
 
     return self
 end
@@ -65,7 +59,7 @@ end
 ---@param condition boolean?
 function Lines:newline(condition)
     if condition == nil or condition then
-        table.insert(self._rows, {})
+        table.insert(self._rows, "\n")
     end
 
     return self
@@ -74,7 +68,7 @@ end
 ---@param count integer?
 function Lines:newlines(count)
     for i = 1, count or 1 do
-        table.insert(self._rows, {})
+        table.insert(self._rows, "\n")
     end
 
     return self
@@ -89,56 +83,54 @@ end
 ---@param line string
 ---@return string
 function Lines:render_line(line)
-    return (" "):rep(self._indent) .. self._sep .. line
+    return (" "):rep(self._col) .. self._sep .. line
 end
 
--- TODO: Pass buffer and lnum to constructor instead
----@param buffer integer
-function Lines:render(buffer)
+function Lines:render()
     local lines = {}
 
     -- 1. Construct rendered string
     for _, row in ipairs(self._rows) do
-        if #row == 0 then
+        if row == "\n" then
             -- Empty newline
             table.insert(lines, self:render_line(""))
-        elseif row[1].value ~= nil then
-            -- Line is a list of text elements
-            local line = vim.tbl_map(function(text)
-                return text.value
+        elseif getmetatable(row) == nil then
+            local contents = vim.tbl_map(function(value)
+                return value[1]
             end, row)
 
-            table.insert(lines, self:render_line(table.concat(line)))
+            -- Line is a list of text elements
+            table.insert(lines, self:render_line(table.concat(contents)))
         else
             -- Line is an element that can render itself
-            local ui_element = row[1]
-            -- TODO: Proper cast
-            vim.list_extend(lines, ui_element:render(self._indent, 0))
+            vim.list_extend(lines, row:render(self._row, self._col))
         end
     end
 
     -- 2. Set lines in buffer
-    vim.api.nvim_buf_set_lines(buffer, self._row, self._row, true, lines)
+    -- FIX: Adding 1 to the end row also removes the first line in fresh buffer but
+    -- only for Lines for the entire file, false strict indexing might fix it
+    vim.api.nvim_buf_set_lines(self._buffer, self._row, self._row + 1, false, lines)
 
     self._line_count = #lines
     local lnum = self._row
 
     -- 3. Set extended marks
     for _, row in ipairs(self._rows) do
-        if #row == 0 then
+        if row == "\n" then
             lnum = lnum + 1
-        elseif row[1].value ~= nil then
-            local col = self._indent + vim.fn.strlen(self._sep)
+        elseif getmetatable(row) == nil then
+            local col = self._col + vim.fn.strlen(self._sep)
 
-            for _, text in ipairs(row) do
+            for _, value in ipairs(row) do
                 local start_col = col
-                col = col + vim.fn.strlen(text.value)
+                col = col + vim.fn.strlen(value[1])
 
-                if text.hl ~= nil then
-                    local extmark = { hl_group = text.hl, end_col = col }
+                if value.hl ~= nil then
+                    local extmark = { hl_group = value.hl, end_row = lnum, end_col = col }
 
                     -- TODO: Do we need to do this every time?
-                    vim.api.nvim_buf_set_extmark(buffer, config.namespace, lnum, start_col, extmark)
+                    vim.api.nvim_buf_set_extmark(self._buffer, config.namespace, lnum, start_col, extmark)
                 end
             end
 
@@ -146,10 +138,10 @@ function Lines:render(buffer)
         else
             -- Line is an element that can set marks itself
             ---@diagnostic disable-next-line: undefined-field
-            row[1]:set_highlights()
+            row:set_highlight(lnum, self._col)
 
             ---@diagnostic disable-next-line: undefined-field
-            lnum = lnum + #row[1]
+            lnum = lnum + row:row_count()
         end
     end
 end
@@ -159,6 +151,10 @@ function Lines:clear()
         vim.api.nvim_buf_set_lines(self._buffer, self._row, self._row + self._line_count, true, {})
         self._line_count = 0
     end
+end
+
+function Lines:clear_contents()
+    self._rows = {}
 end
 
 return Lines

@@ -45,19 +45,20 @@ local function notify_listeners(data)
     end
 end
 
+---@param listener parcel.StateChangeListener
+function state.listen(listener)
+    table.insert(state_change_listeners, listener)
+end
+
 ---@param data PackEventData
 function state.add_parcel(data)
-    parcels[data.spec.name] = Parcel.new({ spec = data.spec })
-
-    notify_listeners(data)
+    parcels[data.spec.name] = Parcel.new({ spec = data })
 end
 
 ---@param data PackEventData
 function state.update_parcel(data)
     -- TODO:
     parcels[data.spec.name]:update({ spec = data.spec })
-
-    notify_listeners(data)
 end
 
 ---@param data PackEventData
@@ -69,45 +70,16 @@ function state.remove_parcel(data)
     end
 
     parcels[name] = nil
-
-    notify_listeners(data)
 end
 
 ---@param options { exclude_states: parcel.State[]? }?
 ---@return table<string, parcel.Parcel>
 function state.parcels(options)
     if #parcels == 0 then
-        -- ---@type vim.pack.PlugData[]
-        -- local packinfo = {
-        --     {
-        --         active = true,
-        --         branches = { "master" },
-        --         path = "some/path",
-        --         rev = "e395bb6",
-        --         spec = {
-        --             src = "https://github.com/MisanthropicBit/winmove.nvim",
-        --             name = "winmove.nvim",
-        --             version = "v1.0.1",
-        --         }
-        --     },
-        --     {
-        --         active = false,
-        --         branches = { "main" },
-        --         path = "some/path",
-        --         rev = "a95b3b6",
-        --         spec = {
-        --             src = "https://github.com/MisanthropicBit/decipher.nvim",
-        --             name = "decipher.nvim",
-        --             version = "v2.2.4",
-        --         }
-        --     }
-        -- }
-
         local packinfo = vim.pack.get()
 
         for _, info in ipairs(packinfo) do
-            table.insert(parcels, Parcel.new({ spec = info }))
-            -- parcels[info.spec.name] = Parcel:new({ spec = info })
+            parcels[info.spec.name] = Parcel.new({ spec = info })
         end
     end
 
@@ -124,6 +96,11 @@ function state.parcels(options)
     return filtered_parcels
 end
 
+---@param options { exclude_states: parcel.State[]? }?
+function state.parcel_list(options)
+    return vim.tbl_values(state.parcels(options))
+end
+
 ---@param name string
 ---@return parcel.Parcel?
 function state.get_parcel(name)
@@ -136,6 +113,21 @@ function state.has_parcel(name)
     return state.get_parcel(name) ~= nil
 end
 
+---@return table<parcel.Parcel.State, integer>
+function state.stats()
+    local stats = {}
+
+    for key, value in pairs(Parcel.State) do
+        stats[key] = 0
+    end
+
+    for name, parcel in pairs(parcels) do
+        stats[parcel:state()] = stats[parcel:state()] + 1
+    end
+
+    return stats
+end
+
 function state.setup()
     vim.api.nvim_create_autocmd("PackChanged", {
         group = constants.augroup,
@@ -143,13 +135,15 @@ function state.setup()
         callback = function(event)
             local data = event.data
 
-            if event.data.kind == "install" then
+            if data.kind == "install" then
                 state.add_parcel(data)
-            elseif event.data.kind == "update" then
+            elseif data.kind == "update" then
                 state.update_parcel(data)
-            elseif event.data.kind == "delete" then
+            elseif data.kind == "delete" then
                 state.remove_parcel(data)
             end
+
+            notify_listeners(data)
         end,
     })
 end

@@ -2,10 +2,11 @@ local lazy_require = require("parcel.utils.lazy_require")
 
 -- TODO: Update ui elements to have prefix parcel.ui.X
 
----@alias parcel.UiElement parcel.Grid | parcel.Label
+---@alias parcel.UiElement parcel.ui.Grid | parcel.Label
 
----@class parcel.RenderOptions
----@field max_len integer
+---@class parcel.ui.RenderOptions
+---@field buffer integer
+---@field max_cell_widths integer[]
 
 return {
     Cell = lazy_require.lazy_require("parcel.ui.cell"),

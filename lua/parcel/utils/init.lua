@@ -1,5 +1,7 @@
 local utils = {}
 
+local lazy_require = require("parcel.utils.lazy_require")
+
 --- Get the path of the currently executing script
 ---@return string
 function utils.get_script_path()
@@ -21,7 +23,8 @@ function utils.privatise_options(tbl)
     return private
 end
 
-utils.git = require("parcel.utils.git")
-utils.str = require("parcel.utils.str")
+utils.git = lazy_require.lazy_require("parcel.utils.git")
+utils.str = lazy_require.lazy_require("parcel.utils.str")
+utils.version = lazy_require.lazy_require("parcel.utils.version")
 
 return utils
