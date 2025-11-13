@@ -16,12 +16,11 @@
 ---@alias parcel.task.Callback fun(ok: boolean, results_or_error: any)
 
 --- Check if we are currently in an async (coroutine) context
----@param func_name string
-local function require_async_context(func_name)
+local function require_async_context()
     local thread, is_main = coroutine.running()
 
     if is_main then
-        error(("Cannot call %s in non-async context"):format(func_name))
+        error("Cannot call async function in non-async context")
     end
 end
 
@@ -128,7 +127,7 @@ function Task.wrap(func, argc, options)
             return unpack(results)
         else
             if options and options.async_only then
-                require_async_context("some")
+                require_async_context()
             end
 
             -- Allow calling wrapped functions in non-async contexts

@@ -2,10 +2,12 @@ local process = {}
 
 local uv = vim.loop
 
+---@alias parcel.ProcessOnExitHandler fun(result: any, code: integer, signal: integer?)
+
 ---@class parcel.ProcessOptions
 ---@field args string[]?
 ---@field cwd string?
----@field on_exit fun(result: any, code: integer, signal: integer?)
+---@field on_exit parcel.ProcessOnExitHandler
 ---@field stdin uv_stream_t?
 ---@field timeout integer?
 
