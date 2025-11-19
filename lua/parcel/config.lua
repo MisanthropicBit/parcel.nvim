@@ -14,7 +14,11 @@ local config_loaded = false
 
 local default_config = {
     log_level = vim.log.levels.WARN,
-    update_timeout_ms = 10000,
+    concurrency = 4,
+    update_checker = {
+        concurrency = 4,
+        timeout_ms = 10000,
+    },
     ui = {
         animated = true,
         animation_update = 100,

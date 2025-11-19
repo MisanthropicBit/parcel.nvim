@@ -19,7 +19,7 @@ local validators = require("parcel.sources.validators")
 ---@class parcel.Source
 ---@field name               fun(): string
 ---@field supported          async fun(): parcel.SourceSupport
----@field write_section      fun(parcel: parcel.Parcel, section: parcel.Lines)
+---@field write_section      fun(parcel: parcel.Parcel, section: parcel.ui.Lines)
 ---@field has_update         async fun(parcel: parcel.Parcel, context: table?)
 ---@field update             async fun(parcel: parcel.Parcel, context: table?)
 

@@ -63,6 +63,7 @@ function Parcel:active()
     return self._plugdata.active or false
 end
 
+---@return string
 function Parcel:revision()
     return self._plugdata.rev
 end

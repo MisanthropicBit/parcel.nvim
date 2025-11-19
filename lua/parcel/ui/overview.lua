@@ -2,9 +2,10 @@ local constants = require("parcel.constants")
 local Spinner = require("parcel.animation.spinner")
 local async = require("parcel.async")
 local config = require("parcel.config")
-local Label = require("parcel.ui.label")
+local diagnostics = require("parcel.diagnostics")
 local Grid = require("parcel.ui.grid")
 local Lines = require("parcel.ui.lines")
+local Text = require("parcel.ui.text")
 local notify = require("parcel.notify")
 local sources = require("parcel.sources")
 local state = require("parcel.state")
@@ -18,22 +19,10 @@ local utils = require("parcel.utils")
 
 ---@class parcel.OnKeyCallbackContext
 ---@field parcel   parcel.Parcel
----@field hl_id    integer
----@field lnum     integer
+---@field row_pos  parcel.ui.RowPos
 ---@field col      integer
 
 ---@alias parcel.OnKeyCallback fun(overview: parcel.Overview, context: parcel.OnKeyCallbackContext)
-
----@alias parcel.ChangeNotifcation parcel.StateChangeNotification | parcel.StateUpdateAvailableNotification
-
----@class parcel.StateChangeNotification
----@field type  "state"
----@field name  string
----@field state parcel.State
-
----@class parcel.StateUpdateAvailableNotification
----@field type "update_available"
----@field parcel parcel.Parcel
 
 ---@type table<string, any>
 local window_options = {
@@ -61,7 +50,7 @@ local main_overview = nil
 
 ---@class parcel.Section
 ---@field visible boolean
----@field lines parcel.Lines
+---@field lines parcel.ui.Lines
 
 ---@class parcel.OverviewOptions
 ---@field open boolean?
@@ -69,11 +58,11 @@ local main_overview = nil
 ---@field mods string? any split modifiers such as "vertical"
 
 ---@class parcel.Overview
----@field lines parcel.Lines
----@field parcels_by_extmark table<integer, parcel.Parcel>
----@field highlights_by_parcel table<string, parcel.Highlight>
+---@field lines parcel.ui.Lines
+---@field row_id_to_parcel table<integer, parcel.Parcel>
+---@field parcel_to_row_id table<string, parcel.ui.RowId>
 ---@field selected table<integer, boolean>
----@field sections table<integer, parcel.Section>
+---@field sections table<parcel.ui.RowId, parcel.Section>
 ---@field parcels parcel.Parcel[]
 local Overview = {}
 
@@ -82,9 +71,8 @@ Overview.__index = Overview
 ---@return parcel.Overview
 function Overview.new()
     return setmetatable({
-        parcels_by_extmark = {},
-        highlights_by_parcel = {},
-        extmarks_by_parcel = {},
+        row_id_to_parcel = {},
+        parcel_to_row_id = {},
         selected = {},
         sections = {},
         parcels = {},
@@ -132,11 +120,11 @@ function Overview:open(options)
         end
 
         if data.kind == "delete" then
-            local id = self.highlights_by_parcel[data.spec.name].id
-            local section = self.sections[id]
+            local row_id = self.parcel_to_row_id[data.spec.name]
+            local section = self.sections[row_id]
 
             if section.visible then
-                self:toggle_expand(self.parcels_by_extmark[id])
+                self:toggle_expand(row_id)
             end
         end
 
@@ -165,10 +153,10 @@ function Overview:set_keymaps()
             return
         end
 
-        local prev_lnum = _self.grid:get_prev(context.lnum)
+        local result = _self.grid:get_prev(context.row_pos.row)
 
-        if prev_lnum then
-            vim.api.nvim_win_set_cursor(_self.win_id, { prev_lnum, 1 })
+        if result then
+            vim.api.nvim_win_set_cursor(_self.win_id, { result.row, 1 })
         end
     end)
 
@@ -177,10 +165,10 @@ function Overview:set_keymaps()
             return
         end
 
-        local next_lnum = _self.grid:get_next(context.lnum)
+        local result = _self.grid:get_next(context.row_pos.row)
 
-        if next_lnum then
-            vim.api.nvim_win_set_cursor(_self.win_id, { next_lnum, 1 })
+        if result then
+            vim.api.nvim_win_set_cursor(_self.win_id, { result.row, 1 })
         end
     end)
 
@@ -225,9 +213,13 @@ function Overview:set_keymaps()
     end)
 
     self:on_key(mappings.expand, function(_self, context)
-        if context.parcel then
-            _self:toggle_expand(context.parcel)
+        local row_pos = _self.grid:get_row_or_previous(vim.fn.line("."))
+
+        if not row_pos then
+            return
         end
+
+        _self:toggle_expand(row_pos.row_id, row_pos.row)
     end)
 
     self:on_key(mappings.collapse_all, function(_self, context)
@@ -235,10 +227,7 @@ function Overview:set_keymaps()
             return
         end
 
-        for highlight_id, section in pairs(self.sections) do
-            local highlight = self.highlights_by_parcel[context.parcel:name()]
-            local lnum = highlight.lnum
-
+        for row_id, section in pairs(self.sections) do
             if section.visible then
                 section.lines:clear()
                 section.visible = false
@@ -269,31 +258,49 @@ function Overview:hidden()
     return vim.api.nvim_buf_is_valid(self.buffer) and not vim.api.nvim_win_is_valid(self.win_id)
 end
 
----@param notification parcel.ChangeNotifcation
+---@param notification parcel.StateChangeNotifcation
 function Overview:notify_change(notification)
     if not self:visible() then
         return
     end
 
+    ---@diagnostic disable-next-line: empty-block
     if notification.type == "state" then
-        local highlight = self.highlights_by_parcel[notification.name]
-        self.grid:set_cell(notification.state, highlight.lnum, 1)
+        -- TODO:
+        -- local row_id = self.parcel_to_row_id[notification.name]
+        -- self.grid:set_cell(notification.state, row_id, 1)
+    elseif notification.type == "update_available" then
+        local parcel_diagnostics = vim.tbl_map(function(parcel)
+            return diagnostics.create(0, {
+                col = 0,
+                lnum = 0,
+                message = config.icons.state.updateable .. " update available",
+                bufnr = self.buffer,
+                severity = vim.diagnostic.severity.WARN,
+            })
+        end, notification.parcels)
+
+        diagnostics.set(self.buffer, parcel_diagnostics)
     end
 end
 
----@param parcel parcel.Parcel
-function Overview:toggle_expand(parcel)
-    local highlight = self.highlights_by_parcel[parcel:name()]
-    local lnum = highlight.lnum
-    local section = self.sections[highlight.id]
+---@param row_id parcel.ui.RowId
+---@param row integer?
+function Overview:toggle_expand(row_id, row)
+    local section = self.sections[row_id]
+
+    if section.visible then
+        section.lines:clear({ row, 0 })
+    else
+        section.lines:render({ row, 0 })
+    end
 
     section.visible = not section.visible
 
-    local method = section.visible and "render" or "clear"
-    section.lines[method](section.lines)
-
-    -- Set cursor position to the toggled parcel's row
-    vim.api.nvim_win_set_cursor(self.win_id, { lnum, 0 })
+    if row then
+        -- Set cursor position to the toggled parcel's row
+        vim.api.nvim_win_set_cursor(self.win_id, { row, 0 })
+    end
 end
 
 ---@param parcel parcel.Parcel
@@ -309,18 +316,25 @@ function Overview:create_parcel_cells(parcel)
         version = version:sub(1, 7)
     end
 
+    -- -- TODO: Support labels in cells
+    -- local version_label = Text.label({
+    --     buffer = self.buffer,
+    --     hl = highlights.version,
+    --     text = utils.version.format(version),
+    -- })
+
     return {
-        { _icons.state[parcel:state()], rpad = 2,             hl = highlights[parcel:state()] },
-        { _icons.parcel,                rpad = 2,             hl = highlights.parcel },
-        { parcel:name(),                align = "left",       rpad = 1,                       hl = "String" },
-        { version,                      rpad = 1,             hl = highlights.version },
-        { pinned,                       icon = _icons.pinned, hl = highlights.pinned,         rpad = 1 },
+        { Text.new({ _icons.state[parcel:state()], hl = highlights[parcel:state()] }) },
+        { Text.new({ _icons.parcel,                hl = highlights.parcel }) },
+        { Text.new({ parcel:name(),                hl = "String" }) },
+        { Text.new({ version,                      hl = highlights.version }) },
+        { Text.new({ pinned,                       hl = highlights.pinned, icon = _icons.pinned }) },
     }
 end
 
 ---@param parcel parcel.Parcel
----@param section parcel.Lines
----@return parcel.Lines
+---@param section parcel.ui.Lines
+---@return parcel.ui.Lines
 function Overview:add_source_section(parcel, section)
     local _icons = config.ui.icons
     local section_bullet = _icons.section_bullet
@@ -331,39 +345,39 @@ function Overview:add_source_section(parcel, section)
     return section
 end
 
+-- ---@param parcel parcel.Parcel
+-- ---@param lines parcel.Lines
+-- ---@return parcel.Lines
+-- function Overview:add_failed_subsection(parcel, lines)
+--     local errors = parcel:errors()
+--
+--     lines:add({ ("%d error(s) encountered"):format(#errors), hl = "ErrorMsg" }):newlines(2)
+--
+--     for idx, err in ipairs(errors) do
+--         local is_process_error = err.context.err and err.context.err.code
+--
+--         lines:add({ err.message, hl = "ErrorMsg" }):newline()
+--
+--         if is_process_error then
+--             -- TODO: What to do about newlines in process output?
+--             lines
+--                 :add({
+--                     ("Process exited with code %d and error message"):format(err.context.err.code),
+--                     hl = "WarningMsg",
+--                 })
+--                 :newline()
+--
+--             for _, err_line in ipairs(err.context.err.stderr) do
+--                 lines:add(err_line):newline()
+--             end
+--         end
+--     end
+--
+--     return lines
+-- end
+
 ---@param parcel parcel.Parcel
----@param lines parcel.Lines
----@return parcel.Lines
-function Overview:add_failed_subsection(parcel, lines)
-    local errors = parcel:errors()
-
-    lines:add({ ("%d error(s) encountered"):format(#errors), hl = "ErrorMsg" }):newlines(2)
-
-    for idx, err in ipairs(errors) do
-        local is_process_error = err.context.err and err.context.err.code
-
-        lines:add({ err.message, hl = "ErrorMsg" }):newline()
-
-        if is_process_error then
-            -- TODO: What to do about newlines in process output?
-            lines
-                :add({
-                    ("Process exited with code %d and error message"):format(err.context.err.code),
-                    hl = "WarningMsg",
-                })
-                :newline()
-
-            for _, err_line in ipairs(err.context.err.stderr) do
-                lines:add(err_line):newline()
-            end
-        end
-    end
-
-    return lines
-end
-
----@param parcel parcel.Parcel
----@return parcel.Lines
+---@return parcel.ui.Lines
 function Overview:add_subsection(parcel, offset)
     -- TODO: Let the source (only git for now) render the subsection
     local _icons = config.ui.icons
@@ -393,32 +407,15 @@ function Overview:add_subsection(parcel, offset)
 end
 
 ---@private
----@param lnum integer
----@return integer?, parcel.Parcel?
-function Overview:get_parcel_at_cursor(lnum)
-    local highlight = self.grid:get_nearest_row(lnum)
-
-    if not highlight then
-        return nil, nil
-    end
-
-    return highlight.id, self.parcels_by_extmark[highlight.id]
-end
-
----@private
 ---@param key string
 ---@param callback parcel.OnKeyCallback
 function Overview:on_key(key, callback)
     local wrapped = function()
-        local lnum = vim.fn.line(".")
-        local hl_id, parcel = self:get_parcel_at_cursor(lnum)
-        ---@cast hl_id -nil
-        ---@cast parcel -nil
+        local row_pos = self.grid:get_row_or_previous(vim.fn.line("."))
 
         callback(self, {
-            parcel = parcel,
-            hl_id = hl_id,
-            lnum = lnum,
+            parcel = self.parcel_to_row_id[row_pos.row_id],
+            row_pos = row_pos,
             col = vim.fn.col("."),
         })
     end
@@ -428,25 +425,23 @@ end
 
 ---@private
 ---@param parcels parcel.Parcel[]
-function Overview:set_extmarks(parcels)
+function Overview:set_row_ids(parcels)
     if #parcels == 0 then
         return
     end
 
     -- After each render, map extmarks for each parcel so we can easily
     -- find the nearest parcel under the cursor
-    for idx, highlight in ipairs(self.grid:get_line_highlights()) do
+    for idx, row_id in ipairs(self.grid:row_ids()) do
         local parcel = parcels[idx]
-        local id = highlight.id
 
-        self.parcels_by_extmark[id] = parcel
-        self.highlights_by_parcel[parcel:name()] = highlight
+        self.row_id_to_parcel[row_id] = parcel
+        self.parcel_to_row_id[parcel:name()] = row_id
 
-        -- TODO: Move elsewhere
-        if not self.sections[id] then
-            self.sections[id] = {
+        if not self.sections[row_id] then
+            self.sections[row_id] = {
                 visible = false,
-                lines = self:add_subsection(parcel, self.parcel_row_offset + idx),
+                lines = self:add_subsection(parcel, self.parcel_row_offset + idx + 1),
             }
         end
     end
@@ -465,12 +460,12 @@ function Overview:render()
 
     -- TODO: Add active/inactive counts
     self.lines
-        :add({ ("Packages (%d)"):format(#parcels), hl = "Title" })
+        :add(Text.new({ ("Packages (%d)"):format(#parcels), hl = "Title" }))
         :newline()
-        :add({ "Press g? for help.", hl = "Comment" })
+        :add(Text.new({ "Press g? for help.", hl = "Comment" }))
         :newline()
 
-    self.parcel_row_offset = self.lines:row_count()
+    self.parcel_row_offset = self.lines:size()
 
     if #parcels == 0 then
         self.lines:add("No packages installed")
@@ -489,7 +484,7 @@ function Overview:render()
 
     self.lines:render()
 
-    self:set_extmarks(parcels)
+    self:set_row_ids(parcels)
 end
 
 ---@param options parcel.OverviewOptions?

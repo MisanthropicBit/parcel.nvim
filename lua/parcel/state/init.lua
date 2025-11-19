@@ -129,6 +129,9 @@ function state.stats()
 end
 
 function state.setup()
+    -- TODO: Listen to "PackAdd" event when completed:
+    -- https://github.com/neovim/neovim/issues/26427
+
     vim.api.nvim_create_autocmd("PackChanged", {
         group = constants.augroup,
         ---@param event { data: PackEventData }

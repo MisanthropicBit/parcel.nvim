@@ -2,17 +2,14 @@ local config = require("parcel.config")
 local Row = require("parcel.ui.row")
 local tblx = require("parcel.tblx")
 
----@class parcel.Highlight
----@field id integer
----@field hl_group string
----@field lnum integer
----@field start_col integer
----@field end_col integer
-
 -- TODO: Use local rows/cols instead of highlight id?
 
----@alias parcel.ui.LocalRowIdx integer
----@alias parcel.ui.CellId integer
+---@alias parcel.ui.RowId integer An id identifying a row even if the row is moved
+---@alias parcel.ui.CellId integer An id identifying a cell even if the cell is moved
+
+---@class parcel.ui.RowPos
+---@field row_id parcel.ui.RowId
+---@field row integer
 
 ---@class parcel.ui.Grid
 ---@field _buffer integer
@@ -21,7 +18,7 @@ local tblx = require("parcel.tblx")
 ---@field _sep string Separator between columns
 ---@field _rows parcel.ui.Row[]
 ---@field _max_cell_widths integer[]
----@field _line_extmarks parcel.Highlight[]
+---@field _row_ids parcel.ui.RowId[]
 local Grid = {}
 
 Grid.__index = Grid
@@ -34,7 +31,7 @@ function Grid.new(options)
         _sep = options.sep or "",
         _rows = {},
         _max_cell_widths = {},
-        _line_extmarks = {},
+        _row_ids = {},
     }, Grid)
 end
 
@@ -95,14 +92,14 @@ end
 --         -- to find positions near the cursor
 --         if options.start_col == 0 then
 --             -- TODO: Add an empty extmark if no highlight
---             table.insert(self._line_extmarks, highlight)
+--             table.insert(self._row_ids, highlight)
 --         end
 --     end
 -- end
 
----@return parcel.Highlight[]
-function Grid:get_line_highlights()
-    return self._line_extmarks
+---@return parcel.ui.RowId[]
+function Grid:row_ids()
+    return self._row_ids
 end
 
 ---@private
@@ -112,58 +109,58 @@ function Grid:get_extmark_by_id(id)
     return vim.api.nvim_buf_get_extmark_by_id(self._buffer, config.namespace, id, { details = true })
 end
 
----@private
----@param highlight parcel.Highlight
----@param extmark any
----@return parcel.Highlight
-function Grid:adjust_highlight_lnum(highlight, extmark)
-    local _highlight = vim.deepcopy(highlight)
+---@param lnum integer
+---@return parcel.ui.RowPos?
+function Grid:get_row_at_cursor(lnum)
+    for idx, row_id in ipairs(self._row_ids) do
+        local extmark = self:get_extmark_by_id(row_id)
 
-    if extmark then
-        _highlight.lnum = extmark[1] + 1
+        if extmark[1] == lnum - 1 then
+            return { row_id = row_id, row = extmark[1] + 1 }
+        end
     end
-
-    return _highlight
 end
 
---- Get the extmark nearest a line number
----@param row integer
----@return parcel.Highlight
-function Grid:get_nearest_row(row)
-    local prev_extmark = nil
+--- Get the row position on a line number or the nearest previous one
+---@param lnum integer
+---@return parcel.ui.RowPos
+function Grid:get_row_or_previous(lnum)
+    local prev_row_id = nil
+    local prev_row = nil
 
-    -- TODO: Simplify loop
-    for idx, highlight in ipairs(self._line_extmarks) do
-        local extmark = self:get_extmark_by_id(highlight.id)
+    for idx, row_id in ipairs(self._row_ids) do
+        local extmark = self:get_extmark_by_id(row_id)
 
-        if extmark[1] == row - 1 then
+        if extmark[1] == lnum - 1 then
             -- We landed exactly on the extmark, so return it
-            return self:adjust_highlight_lnum(highlight, extmark)
-        elseif extmark[1] > row - 1 then
-            -- Extmark is below row so return the previous one
-            local prev_highlight = self._line_extmarks[idx - 1] or highlight
-            local _prev = prev_extmark or extmark
-
-            return self:adjust_highlight_lnum(prev_highlight, _prev)
+            return { row_id = row_id, row = extmark[1] + 1 }
+        elseif extmark[1] > lnum - 1 then
+            -- Extmark is below lnum so return the previous one or this one if
+            -- no previous
+            return { row_id = prev_row_id or row_id, row = (prev_row or extmark[1]) + 1 }
         end
 
-        prev_extmark = extmark
+        prev_row_id = row_id
+        prev_row = extmark[1]
     end
 
-    return self:adjust_highlight_lnum(self._line_extmarks[#self._line_extmarks], prev_extmark)
+    local last_row_id = self._row_ids[#self._row_ids]
+    local extmark = self:get_extmark_by_id(last_row_id)
+
+    return { row_id = last_row_id, row = extmark[1] + 1 }
 end
 
----@param row integer
----@return integer?
-function Grid:get_prev(row)
-    local prev_extmark = nil
+---@param lnum integer
+---@return { row_id: parcel.ui.RowId?, row: integer }?
+function Grid:get_prev(lnum)
+    local prev_row_id = nil
 
-    for idx = #self._line_extmarks, 1, -1 do
-        local highlight = self._line_extmarks[idx]
-        local extmark = self:get_extmark_by_id(highlight.id)
+    for idx = #self._row_ids, 1, -1 do
+        local row_id = self._row_ids[idx]
+        local extmark = self:get_extmark_by_id(row_id)
 
-        if extmark[1] < row - 1 then
-            return extmark[1] + 1
+        if extmark[1] < lnum - 1 then
+            return { row_id = row_id, row = extmark[1] + 1 }
         end
     end
 
@@ -171,13 +168,13 @@ function Grid:get_prev(row)
 end
 
 ---@param lnum integer
----@return integer?
+---@return { row_id: parcel.ui.RowId?, row: integer }?
 function Grid:get_next(lnum)
-    for idx, highlight in ipairs(self._line_extmarks) do
-        local extmark = self:get_extmark_by_id(highlight.id)
+    for idx, row_id in ipairs(self._row_ids) do
+        local extmark = self:get_extmark_by_id(row_id)
 
         if extmark[1] > lnum - 1 then
-            return extmark[1] + 1
+            return { row_id = row_id, row = extmark[1] + 1 }
         end
     end
 
@@ -235,10 +232,8 @@ function Grid:render_cell(id, value, col)
     })
 end
 
----@param row integer
----@param col integer
 ---@return string[]
-function Grid:render(row, col)
+function Grid:render()
     -- TODO: Handle uneven cells
     local lines = {}
     self._max_cell_widths = tblx.fill_list(self._rows[1]:size(), 0)
@@ -255,7 +250,7 @@ function Grid:render(row, col)
 
     -- Render rows
     for idx, _row in ipairs(self._rows) do
-        table.insert(lines, indent_sep .. _row:render(row + idx - 1, col, render_options))
+        table.insert(lines, indent_sep .. _row:render(render_options))
     end
 
     return lines
@@ -263,29 +258,26 @@ end
 
 ---@param row integer
 ---@param col integer
+---@return integer
 function Grid:set_highlight(row, col)
-    self._line_extmarks = {}
+    self._row_ids = {}
 
     for row_idx, _row in ipairs(self._rows) do
         local offset = col
 
         for cell_idx, cell in _row:iter() do
-            cell:set_highlight(self._buffer, row + row_idx - 1, offset)
+            local cell_id = cell:set_highlight(self._buffer, row + row_idx - 1, offset)
 
+            -- TODO: Just create a extmark we manage ourselves
             if cell_idx == 1 then
-                -- TODO: Can we just use the info from getting the extmark?
-                table.insert(self._line_extmarks, {
-                    id = cell:highlight_id(),
-                    lnum = self._row + row_idx, -- TODO: Rename to row
-                    start_col = offset,
-                    end_col = offset + cell:bytesize(),
-                })
+                table.insert(self._row_ids, cell_id)
             end
 
             offset = offset + cell:bytesize()
         end
-
     end
+
+    return row + #self._rows
 end
 
 return Grid

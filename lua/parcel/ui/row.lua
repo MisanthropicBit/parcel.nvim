@@ -47,19 +47,13 @@ function Row:iter()
     return ipairs(self._cells)
 end
 
----@param row integer
----@param col integer
 ---@param render_options parcel.ui.RenderOptions
 ---@return string
-function Row:render(row, col, render_options)
+function Row:render(render_options)
     local result = {}
-    local offset = col
-    local indent = (" "):rep(col)
 
     for idx, cell in ipairs(self._cells) do
-        table.insert(result, indent .. cell:render(render_options.max_cell_widths[idx]))
-
-        offset = offset + cell:bytesize()
+        table.insert(result, cell:render(render_options.max_cell_widths[idx]))
     end
 
     return table.concat(result)

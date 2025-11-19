@@ -15,14 +15,11 @@ local highlight = require("parcel.highlight")
 function extmark.create(buffer, row, col, specs)
     local extmark_ids = {}
     local cur_col = col
-    vim.print(constants.namespace)
 
     for _, spec in ipairs(specs) do
         local start_col = cur_col
         local end_col = cur_col + vim.fn.strlen(spec[1])
         local hl_group = highlight.create({ fg = spec.fg, bg = spec.bg })
-
-        vim.print(hl_group)
 
         local id = vim.api.nvim_buf_set_extmark(
             buffer,
