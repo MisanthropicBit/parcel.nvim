@@ -23,8 +23,9 @@ local Task = require("parcel.tasks.task")
 
 ---@param subcommand string
 ---@param args string[]
+---@param path string
 ---@param callback parcel.ProcessOnExitHandler
-local function execute_git(subcommand, args, callback)
+local function execute_git(subcommand, args, path, callback)
     table.insert(args, 1, subcommand)
 
     -- TODO: Fix logging these types of arguments
@@ -33,9 +34,11 @@ local function execute_git(subcommand, args, callback)
     process.spawn(
         "git",
         vim.tbl_extend("force", args, {
+            cwd = path,
             on_exit = function(result, code, signal)
                 result.code = code
                 result.signal = signal
+
                 callback(code == 0, result)
             end,
         })
@@ -43,17 +46,18 @@ local function execute_git(subcommand, args, callback)
 end
 
 git.default_branch = Task.wrap(function(dir, callback)
-    execute_git("rev-parse", { "--abbrev-ref", "origin/HEAD" }, callback)
+    execute_git("rev-parse", { "--abbrev-ref", "origin/HEAD" }, dir, callback)
 end, 2)
 
 git.sha = Task.wrap(function(dir, object, callback)
-    execute_git("rev-list", { "-1", "--abbrev-commit", object }, callback)
+    execute_git("rev-list", { "-1", "--abbrev-commit", object }, dir, callback)
 end, 3)
 
 ---@param url string
+---@param dir string
 ---@param options parcel.GitCloneOptions?
 ---@param callback fun(ok: boolean, result: parcel.ProcessResult)
-git.clone = Task.wrap(function(url, options, callback)
+git.clone = Task.wrap(function(url, dir, options, callback)
     local args = {
         url,
         "--depth",
@@ -67,7 +71,7 @@ git.clone = Task.wrap(function(url, options, callback)
 
     table.insert(args, _options.dir)
 
-    execute_git("clone", args, callback)
+    execute_git("clone", args, dir, callback)
 end, 3)
 
 ---@param dir string
@@ -87,14 +91,14 @@ git.checkout = Task.wrap(function(dir, options, callback)
         return false, "No arguments given to git checkout"
     end
 
-    execute_git("checkout", args, callback)
+    execute_git("checkout", args, dir, callback)
 end, 3)
 
 ---@param dir string
 ---@param options parcel.GitFetchOptions
 ---@param callback fun(ok: boolean, result: parcel.ProcessResult)
 git.fetch = Task.wrap(function(dir, options, callback)
-    execute_git("fetch", options.args or {}, callback)
+    execute_git("fetch", options.args or {}, dir, callback)
 end, 3)
 
 ---@param dir string
@@ -104,7 +108,7 @@ git.pull = Task.wrap(function(dir, options, callback)
     local args = {}
     local _options = options or {}
 
-    execute_git("pull", args, callback)
+    execute_git("pull", args, dir, callback)
 end, 3)
 
 return git
