@@ -41,13 +41,6 @@ function highlight.get_hl(ns_id, options)
     return vim.api.nvim_get_hl(ns_id, vim.tbl_extend("force", options, { link = false }))
 end
 
----@param ns_id integer
----@param name string
----@param options parcel.HighlightOptions
-function highlight.set_hl(ns_id, name, options)
-    vim.api.nvim_set_hl(ns_id, name, options)
-end
-
 ---@param options string | parcel.HighlightOptions
 function highlight.create(options)
     if type(options) == "string" then
@@ -57,15 +50,13 @@ function highlight.create(options)
     local cache_key = create_cache_key(options)
 
     if hl_cache[cache_key] then
-        return hl_cache[cache_key]
+        return cache_key
     end
 
-    local colors = { force = true, default = false }
+    local colors = vim.tbl_extend("force", { force = true, default = false }, options)
 
-    colors = vim.tbl_extend("force", colors, options)
-    colors = vim.tbl_extend("force", colors, options)
-
-    highlight.set_hl(constants.hl_namespace, cache_key, colors)
+    vim.api.nvim_set_hl(constants.hl_namespace, cache_key, colors)
+    hl_cache[cache_key] = true
 
     return cache_key
 end
