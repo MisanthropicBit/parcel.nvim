@@ -107,6 +107,7 @@ function Lines:render(pos)
     -- 2. Set lines in buffer
     -- FIX: Adding 1 to the end row also removes the first line in fresh buffer but
     -- only for Lines for the entire file, false strict indexing might fix it
+    -- FIX: For the main Lines we have to set 0, -1 to take up all space
     vim.api.nvim_buf_set_lines(self._buffer, render_row, render_row, false, lines)
 
     self._line_count = #lines

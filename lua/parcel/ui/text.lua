@@ -28,7 +28,7 @@ local text_defaults = {}
 ---@param options parcel.ui.TextOptions
 ---@return parcel.ui.Text
 function Text.new(options)
-    local text = vim.tbl_deep_extend("force", text_defaults, options)
+    local text = {}
 
     text._values = {}
     text._highlights = {}
@@ -38,14 +38,16 @@ function Text.new(options)
         table.insert(text._values, options)
         table.insert(text._highlights, "")
     elseif options.hl ~= nil then
+        ---@cast options parcel.ui.TextElement
         table.insert(text._values, options[1])
         table.insert(text._highlights, highlight.create(options.hl))
     else
+        ---@cast options parcel.ui.TextElement[]
         for _, value in ipairs(options) do
-            ---@cast value parcel.ui.TextElement
             table.insert(text._values, value[1])
             table.insert(text._highlights, value.hl and highlight.create(value.hl) or "")
         end
+        vim.print(vim.inspect(text._highlights))
     end
 
     return setmetatable(text, Text)
@@ -53,7 +55,7 @@ end
 
 ---@return integer
 function Text:size()
-    return #self:render()
+    return #self:render()[1]
 end
 
 ---@return string[]
@@ -80,7 +82,6 @@ function Text:set_highlight(row, col)
             }
 
             -- TODO: Set buffer
-            vim.print(vim.inspect({ self._values[idx], row, row, cur_col, end_col }))
             self._extmark_ids[idx] = vim.api.nvim_buf_set_extmark(0, config.namespace, row, cur_col, extmark)
         end
 
@@ -92,13 +93,15 @@ end
 
 ---@param options parcel.ui.LabelOptions
 function Text.label(options)
+    -- TODO: Check if both seps are given or missing
+    -- TODO: Get fg and bg from highlight group or use those given
     local spacing = (" "):rep(options.spacing or 0)
     local text = ("%s%s%s"):format(spacing, options.text, spacing)
 
     return Text.new({
-        { options.left_sep or "", hl = options.hl },
-        { text, fg = "#ffffff", hl = options.hl },
-        { options.right_sep or "", hl = options.hl },
+        { options.left_sep or "", hl = { fg = options.hl.bg } },
+        { text, hl = options.hl },
+        { options.right_sep or "", hl = { fg = options.hl.bg } },
     })
 end
 

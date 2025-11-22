@@ -25,7 +25,7 @@ local Cell = {
 Cell.__index = Cell
 
 ---@class parcel.ui.CellOptions
----@field [1] string? | parcel.ui.InlineElement?
+---@field [1] (string?) | parcel.ui.InlineElement
 ---@field align parcel.ui.CellAlignment?
 ---@field lpad integer?
 ---@field rpad integer?
@@ -37,7 +37,7 @@ function Cell.new(options)
     local cell = setmetatable(utils.privatise_options(options), Cell)
 
     if value == nil or type(value) == "string" then
-        cell:set_value(Text.new({ value or "" }))
+        cell:set_value(Text.new(value or ""))
     else
         cell:set_value(value)
     end

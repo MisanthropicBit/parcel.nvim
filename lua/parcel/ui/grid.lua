@@ -266,11 +266,11 @@ function Grid:set_highlight(row, col)
         local offset = col
 
         for cell_idx, cell in _row:iter() do
-            local cell_id = cell:set_highlight(self._buffer, row + row_idx - 1, offset)
+            cell:set_highlight(self._buffer, row + row_idx - 1, offset)
 
             -- TODO: Just create a extmark we manage ourselves
             if cell_idx == 1 then
-                table.insert(self._row_ids, cell_id)
+                table.insert(self._row_ids, cell._value._extmark_ids[1])
             end
 
             offset = offset + cell:bytesize()

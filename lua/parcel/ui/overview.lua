@@ -381,19 +381,21 @@ function Overview:create_parcel_cells(parcel)
         version = version:sub(1, 7)
     end
 
-    -- -- TODO: Support labels in cells
-    -- local version_label = Text.label({
-    --     buffer = self.buffer,
-    --     hl = highlights.version,
-    --     text = utils.version.format(version),
-    -- })
+    local version_label = Text.label({
+        buffer = self.buffer,
+        hl = {
+            fg = "#ffffff",
+            bg = "#1398ab",
+        },
+        text = version and utils.version.format(version) or "No version",
+    })
 
     return {
         { Text.new({ _icons.state[parcel:state()], hl = highlights[parcel:state()] }) },
-        { Text.new({ _icons.parcel,                hl = highlights.parcel }) },
-        { Text.new({ parcel:name(),                hl = "String" }) },
-        { Text.new({ version,                      hl = highlights.version }) },
-        { Text.new({ pinned,                       hl = highlights.pinned, icon = _icons.pinned }) },
+        { Text.new({ _icons.parcel, hl = highlights.parcel }) },
+        { Text.new({ parcel:name(), hl = "String" }) },
+        { version_label },
+        { Text.new({ pinned, hl = highlights.pinned, icon = _icons.pinned }) },
     }
 end
 
@@ -459,12 +461,14 @@ function Overview:add_subsection(parcel, offset)
     local grid = Grid.new({ buffer = self.buffer })
 
     -- TODO: Extend so we can add separate highlights for section_bullet and "Name"
-    grid
-        :add_row({ { "Name", hl = "Keyword" }, { parcel:name() } })
-        :add_row({ { "Version", hl = "Keyword" }, { tostring(parcel:version()) } })
-        :add_row({ { "Revision", hl = "Keyword" }, { parcel:revision() } })
-        :add_row({ { "Source", hl = "Keyword" }, { _icons.sources[parcel:source()] .. " " .. parcel:source_url() } })
-        :add_row({ { "Path", hl = "Keyword" }, { parcel:path() } })
+    grid:add_row({ { Text.new({ "Name", hl = "Keyword" }) }, { parcel:name() } })
+        :add_row({ { Text.new({ "Version", hl = "Keyword" }) }, { tostring(parcel:version()) } })
+        :add_row({ { Text.new({ "Revision", hl = "Keyword" }) }, { parcel:revision() } })
+        :add_row({
+            { Text.new({ "Source", hl = "Keyword" }) },
+            { _icons.sources[parcel:source()] .. " " .. parcel:source_url() },
+        })
+        :add_row({ { Text.new({ "Path", hl = "Keyword" }) }, { parcel:path() } })
 
     section:newline():add(grid):newline()
 
@@ -479,7 +483,7 @@ function Overview:on_key(key, callback)
         local row_pos = self.grid:get_row_or_previous(vim.fn.line("."))
 
         callback(self, {
-            parcel = self.parcel_to_row_id[row_pos.row_id],
+            parcel = self.row_id_to_parcel[row_pos.row_id],
             row_pos = row_pos,
             col = vim.fn.col("."),
         })
