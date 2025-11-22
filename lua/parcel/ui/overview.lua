@@ -61,9 +61,8 @@ local main_overview = nil
 ---@field lines parcel.ui.Lines
 ---@field row_id_to_parcel table<integer, parcel.Parcel>
 ---@field parcel_to_row_id table<string, parcel.ui.RowId>
----@field selected table<integer, boolean>
+---@field selected table<integer, integer>
 ---@field sections table<parcel.ui.RowId, parcel.Section>
----@field parcels parcel.Parcel[]
 local Overview = {}
 
 Overview.__index = Overview
@@ -75,7 +74,6 @@ function Overview.new()
         parcel_to_row_id = {},
         selected = {},
         sections = {},
-        parcels = {},
     }, Overview)
 end
 
@@ -148,6 +146,20 @@ function Overview:set_keymaps()
 
     -- self:on_key(mappgins.reload, ...)
 
+    self:on_key(mappings.toggle_select, function(_self, context)
+        if not context.parcel then
+            return
+        end
+
+        local row_id = context.row_pos.row_id
+
+        _self:toggle_select(row_id, context.row_pos.row)
+    end)
+
+    self:on_key(mappings.clear_selects, function(_self, context)
+        vim.api.nvim_buf_clear_namespace(_self.buffer, constants.select_hl_namespace, 0, -1)
+    end)
+
     self:on_key(mappings.previous, function(_self, context)
         if not context.parcel then
             return
@@ -207,9 +219,22 @@ function Overview:set_keymaps()
             return
         end
 
-        -- TODO: Prompt for confirmation
+        local parcels = self:get_selected_parcels(context)
+        local prompt = #parcels > 1 and ("Delete %d parcels?"):format(#parcels)
+            or ("Delete parcel %s?"):format(parcels[1]:name())
 
-        vim.pack.del({ context.parcel:name() })
+        vim.ui.input({
+            prompt = prompt,
+            completion = function()
+                -- TODO:
+            end,
+        }, function(input)
+            if input and input:lower() == "yes" then
+                vim.pack.del(vim.tbl_map(function(parcel)
+                    return parcel:name()
+                end, parcels))
+            end
+        end)
     end)
 
     self:on_key(mappings.expand, function(_self, context)
@@ -234,6 +259,28 @@ function Overview:set_keymaps()
             end
         end
     end)
+end
+
+---@private
+---@param context parcel.OnKeyCallbackContext
+---@return parcel.Parcel[]
+function Overview:get_selected_parcels(context)
+    local any_selected = false
+    local selected = {}
+
+    for row_id, extmark_id in pairs(self.selected) do
+        if extmark_id then
+            local parcel = self.row_id_to_parcel[row_id]
+            table.insert(selected, parcel)
+            any_selected = true
+        end
+    end
+
+    if any_selected then
+        return selected
+    end
+
+    return { context.parcel }
 end
 
 ---@param parcels table<string, parcel.Parcel>
@@ -300,6 +347,24 @@ function Overview:toggle_expand(row_id, row)
     if row then
         -- Set cursor position to the toggled parcel's row
         vim.api.nvim_win_set_cursor(self.win_id, { row, 0 })
+    end
+end
+
+---@param row_id parcel.ui.RowId
+---@param row integer
+function Overview:toggle_select(row_id, row)
+    local extmark_id = self.selected[row_id]
+
+    if extmark_id then
+        vim.api.nvim_buf_del_extmark(self.buffer, constants.select_hl_namespace, extmark_id)
+        self.selected[row_id] = nil
+    else
+        -- Create a background extmark on top of entire row
+        self.selected[row_id] = vim.api.nvim_buf_set_extmark(self.buffer, constants.select_hl_namespace, row - 1, 0, {
+            end_row = row - 1,
+            end_col = vim.fn.col("$") - 1,
+            hl_group = "Search", -- TODO: Generate background color from highlight
+        })
     end
 end
 
