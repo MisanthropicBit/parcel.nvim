@@ -2,9 +2,9 @@ local Path = require("parcel.path")
 
 describe("Path", function()
     it("creates an empty Path", function()
-        local path = Path:new()
-        vim.print(vim.inspect(path))
+        local path = Path.new()
 
+        assert.are.same(tostring(path), "")
         assert.are.same(path:absolute(), "")
     end)
 
@@ -16,7 +16,7 @@ describe("Path", function()
     end)
 
     it("joins components using the '/' operator", function()
-        local path = Path:new()
+        local path = Path.new()
         path = path / "a" / "b" / "c"
 
         assert.are.same(path:absolute(), table.concat({ "a", "b", "c" }, Path.separator))
@@ -26,21 +26,21 @@ describe("Path", function()
     end)
 
     it("adds extension without dot", function()
-        local path = Path:new("a", "b")
+        local path = Path.new("a", "b")
         path:add_extension("jpg")
 
         assert.are.same(path:absolute(), table.concat({ "a", "b" }, Path.separator) .. ".jpg")
     end)
 
     it("adds extension with dot", function()
-        local path = Path:new("a", "b")
+        local path = Path.new("a", "b")
         path:add_extension(".jpg")
 
         assert.are.same(path:absolute(), table.concat({ "a", "b" }, Path.separator) .. ".jpg")
     end)
 
     it("adds multiple extensions", function()
-        local path = Path:new("a", "b")
+        local path = Path.new("a", "b")
         path:add_extension("jpg")
         path:add_extension(".lol")
 
