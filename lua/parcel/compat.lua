@@ -6,6 +6,4 @@ function compat.has(feature)
     return vim.fn.has(feature) == 1
 end
 
-compat.has_extmarks = vim.api.nvim_buf_set_extmark ~= nil
-
 return compat
