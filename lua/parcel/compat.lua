@@ -7,6 +7,5 @@ function compat.has(feature)
 end
 
 compat.has_extmarks = vim.api.nvim_buf_set_extmark ~= nil
-compat.uv = vim.uv or vim.loop
 
 return compat
