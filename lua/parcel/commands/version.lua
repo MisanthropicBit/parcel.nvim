@@ -5,7 +5,7 @@ local notify = require("parcel.notify")
 
 ---@param options vim.api.keyset.create_user_command.command_args
 function version.run(options)
-    notify.info("Parcel version %s", constants.version)
+    notify.info("parcel.nvim version %s", constants.version)
 end
 
 return version

@@ -556,16 +556,10 @@ function Overview:render()
     self:set_row_ids(parcels)
 end
 
----@param options parcel.OverviewOptions?
 ---@return parcel.Overview
-function Overview.main(options)
+function Overview.main()
     if not main_overview then
         main_overview = Overview.new()
-    end
-
-    if options and options.open then
-        main_overview:open(options)
-        main_overview:render()
     end
 
     return main_overview
