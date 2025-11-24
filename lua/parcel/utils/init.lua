@@ -17,7 +17,9 @@ function utils.privatise_options(tbl)
     local private = {}
 
     for key, value in pairs(tbl) do
-        private["_" .. key] = value
+        if type(key) == "string" then
+            private["_" .. key] = value
+        end
     end
 
     return private
