@@ -1,6 +1,4 @@
 local constants = require("parcel.constants")
-local Spinner = require("parcel.animation.spinner")
-local async = require("parcel.async")
 local config = require("parcel.config")
 local diagnostics = require("parcel.diagnostics")
 local Grid = require("parcel.ui.grid")
@@ -10,6 +8,7 @@ local notify = require("parcel.notify")
 local sources = require("parcel.sources")
 local state = require("parcel.state")
 local Parcel = require("parcel.parcel")
+local Path = require("parcel.path")
 local update_checker = require("parcel.update_checker")
 local utils = require("parcel.utils")
 
@@ -53,7 +52,6 @@ local main_overview = nil
 ---@field lines parcel.ui.Lines
 
 ---@class parcel.OverviewOptions
----@field open boolean?
 ---@field float boolean? open the overview in a float if true
 ---@field mods string? any split modifiers such as "vertical"
 
@@ -128,6 +126,8 @@ function Overview:open(options)
 
         self:render()
     end)
+
+    vim.api.nvim_win_set_hl_ns(self.win_id, constants.hl_namespace)
 
     self:set_keymaps()
 end
@@ -297,12 +297,31 @@ end
 
 ---@return boolean
 function Overview:visible()
-    return vim.api.nvim_buf_is_valid(self.buffer) and vim.api.nvim_win_is_valid(self.win_id)
+    return self.buffer
+        and vim.api.nvim_buf_is_valid(self.buffer)
+        and self.win_id
+        and vim.api.nvim_win_is_valid(self.win_id)
 end
 
 ---@return boolean
 function Overview:hidden()
     return vim.api.nvim_buf_is_valid(self.buffer) and not vim.api.nvim_win_is_valid(self.win_id)
+end
+
+---@return boolean
+function Overview:is_valid()
+    return vim.api.nvim_buf_is_valid(self.buffer) and vim.api.nvim_win_is_valid(self.win_id)
+end
+
+---@return boolean
+function Overview:focus()
+    if not self:visible() or not self:is_valid() then
+        return false
+    end
+
+    vim.api.nvim_set_current_win(self.win_id)
+
+    return true
 end
 
 ---@param notification parcel.StateChangeNotifcation
@@ -378,7 +397,7 @@ function Overview:create_parcel_cells(parcel)
     local pinned = parcel:pinned() and _icons.pinned or ""
 
     if type(version) == "string" and utils.git.is_sha(version) then
-        version = version:sub(1, 7)
+        version = version:sub(1, 7) .. " " .. _icons.pinned
     end
 
     local version_label = Text.label({
@@ -395,7 +414,6 @@ function Overview:create_parcel_cells(parcel)
         { Text.new({ _icons.parcel, hl = highlights.parcel }) },
         { Text.new({ parcel:name(), hl = "String" }) },
         { version_label },
-        { Text.new({ pinned, hl = highlights.pinned, icon = _icons.pinned }) },
     }
 end
 
@@ -469,6 +487,21 @@ function Overview:add_subsection(parcel, offset)
             { _icons.sources[parcel:source()] .. " " .. parcel:source_url() },
         })
         :add_row({ { Text.new({ "Path", hl = "Keyword" }) }, { parcel:path() } })
+
+    local readme_path
+
+    for _, readme in ipairs({ "README.md", "README.rst" }) do
+        readme_path = Path.join(parcel:path(), readme)
+        local readme_stat = vim.uv.fs_stat(readme_path)
+
+        if readme_stat then
+            break
+        end
+    end
+
+    if readme_path then
+        grid:add_row({ { Text.new({ "README", hl = "Keyword" }) }, { readme_path } })
+    end
 
     section:newline():add(grid):newline()
 
@@ -551,7 +584,7 @@ function Overview:render()
         self.lines:add(self.grid)
     end
 
-    self.lines:render()
+    self.lines:render(nil, true)
 
     self:set_row_ids(parcels)
 end

@@ -1,9 +1,13 @@
+local Path = require("parcel.path")
+
 local values = {
     augroup = vim.api.nvim_create_augroup("parcel.augroup", {}),
     namespace = vim.api.nvim_create_namespace("parcel"),
-    render_namespace = vim.api.nvim_create_namespace("parcel.render"),
-    hl_namespace = vim.api.nvim_create_namespace("parcel.render"),
-    lockfile = vim.fn.stdpath("config") .. "/nvim/nvim-pack-lock.json.",
+    hl_namespace = vim.api.nvim_create_namespace("parcel.hl"),
+    extmark_namespace = vim.api.nvim_create_namespace("parcel.extmark"),
+    select_hl_namespace = vim.api.nvim_create_namespace("parcel.hl.select"),
+    packlog = Path.new(vim.fn.stdpath("log"), "nvim-pack.log"),
+    lockfile = Path.new(vim.fn.stdpath("config"), "nvim-pack-lock.json."),
     version = "0.1.0",
 }
 

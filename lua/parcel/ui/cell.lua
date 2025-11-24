@@ -98,7 +98,7 @@ end
 ---@param col integer
 ---@return parcel.ui.CellId
 function Cell:set_highlight(buffer, row, col)
-    return self._value:set_highlight(row, col + 1)
+    return self._value:set_highlight(buffer, row, col + 1)
 end
 
 return Cell

@@ -1,5 +1,13 @@
 local lazy_require = require("parcel.utils.lazy_require")
 
+---@enum parcel.ui.Column
+local Column = {
+    State = "state",
+    PackageIcon = "package_icon",
+    Name = "name",
+    VersionRevision = "version_revision",
+}
+
 ---@alias parcel.ui.Element parcel.ui.Grid | parcel.ui.Text
 
 ---@alias parcel.ui.InlineElement parcel.ui.Text Elements that can appear on the same line in a parcel.ui.Lines

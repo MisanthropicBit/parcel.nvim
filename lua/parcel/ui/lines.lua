@@ -82,7 +82,8 @@ function Lines:render_line(line)
 end
 
 ---@param pos { [1]: integer, [2]: integer }?
-function Lines:render(pos)
+---@param entire_buffer boolean?
+function Lines:render(pos, entire_buffer)
     -- TODO: Could we instead create two extmarks to keep track of the position
     -- of the lines?
     local lines = {}
@@ -105,10 +106,13 @@ function Lines:render(pos)
     end
 
     -- 2. Set lines in buffer
-    -- FIX: Adding 1 to the end row also removes the first line in fresh buffer but
-    -- only for Lines for the entire file, false strict indexing might fix it
-    -- FIX: For the main Lines we have to set 0, -1 to take up all space
-    vim.api.nvim_buf_set_lines(self._buffer, render_row, render_row, false, lines)
+    local start_line, end_line = render_row, render_row
+
+    if entire_buffer then
+        start_line, end_line = 0, -1
+    end
+
+    vim.api.nvim_buf_set_lines(self._buffer, start_line, end_line, false, lines)
 
     self._line_count = #lines
 
@@ -127,7 +131,7 @@ function Lines:render_highlights(render_row, render_col)
             lnum = lnum + 1
         else
             -- Line is an element that can set highlights itself
-            lnum = row:set_highlight(lnum, render_col) + 1
+            lnum = row:set_highlight(self._buffer, lnum, render_col)
         end
     end
 end

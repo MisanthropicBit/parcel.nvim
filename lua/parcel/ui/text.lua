@@ -21,7 +21,7 @@ local Text = {}
 
 Text.__index = Text
 
-local config = require("parcel.config")
+local constants = require("parcel.constants")
 
 local text_defaults = {}
 
@@ -63,10 +63,11 @@ function Text:render()
     return { table.concat(self._values) }
 end
 
+---@param buffer integer
 ---@param row integer
 ---@param col integer
 ---@return integer
-function Text:set_highlight(row, col)
+function Text:set_highlight(buffer, row, col)
     local cur_col = col
 
     for idx, hl in ipairs(self._highlights) do
@@ -81,14 +82,13 @@ function Text:set_highlight(row, col)
                 end_col = end_col,
             }
 
-            -- TODO: Set buffer
-            self._extmark_ids[idx] = vim.api.nvim_buf_set_extmark(0, config.namespace, row, cur_col, extmark)
+            self._extmark_ids[idx] = vim.api.nvim_buf_set_extmark(buffer, constants.extmark_namespace, row, cur_col, extmark)
         end
 
         cur_col = end_col
     end
 
-    return row
+    return row + 1
 end
 
 ---@param options parcel.ui.LabelOptions

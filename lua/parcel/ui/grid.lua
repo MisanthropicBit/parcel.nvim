@@ -1,4 +1,4 @@
-local config = require("parcel.config")
+local constants = require("parcel.constants")
 local Row = require("parcel.ui.row")
 local tblx = require("parcel.tblx")
 
@@ -83,7 +83,7 @@ end
 --         }
 --
 --         highlight.id =
---             vim.api.nvim_buf_set_extmark(self._buffer, config.namespace, highlight.lnum - 1, highlight.start_col, {
+--             vim.api.nvim_buf_set_extmark(self._buffer, constants.extmark_namespace, highlight.lnum - 1, highlight.start_col, {
 --                 hl_group = highlight.hl_group,
 --                 end_col = highlight.end_col,
 --             })
@@ -106,7 +106,7 @@ end
 ---@param id integer
 ---@return vim.api.keyset.get_extmark_item_by_id
 function Grid:get_extmark_by_id(id)
-    return vim.api.nvim_buf_get_extmark_by_id(self._buffer, config.namespace, id, { details = true })
+    return vim.api.nvim_buf_get_extmark_by_id(self._buffer, constants.extmark_namespace, id, { details = true })
 end
 
 ---@param lnum integer
@@ -225,7 +225,7 @@ function Grid:render_cell(id, value, col)
 
     vim.api.nvim_buf_set_text(self._buffer, _row, _col, _row, end_col, { text })
 
-    vim.api.nvim_buf_set_extmark(self._buffer, config.namespace, _row, _col, {
+    vim.api.nvim_buf_set_extmark(self._buffer, constants.extmark_namespace, _row, _col, {
         id = id,
         end_row = _row,
         end_col = end_col,
@@ -256,15 +256,17 @@ function Grid:render()
     return lines
 end
 
+---@param buffer integer
 ---@param row integer
 ---@param col integer
 ---@return integer
-function Grid:set_highlight(row, col)
+function Grid:set_highlight(buffer, row, col)
     self._row_ids = {}
 
     for row_idx, _row in ipairs(self._rows) do
         local offset = col
 
+        -- TODO: Move this into Row class?
         for cell_idx, cell in _row:iter() do
             cell:set_highlight(self._buffer, row + row_idx - 1, offset)
 
@@ -277,7 +279,7 @@ function Grid:set_highlight(row, col)
         end
     end
 
-    return row + #self._rows
+    return row + #self._rows + 1
 end
 
 return Grid
