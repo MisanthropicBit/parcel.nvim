@@ -24,11 +24,9 @@ local default_config = {
         animation_update = 100,
         columns = {
             "state",
-            "pinned",
             "package_icon",
             "name",
-            "version",
-            "revision",
+            "version_revision",
         },
         icons = {
             parcel = "",
@@ -40,7 +38,7 @@ local default_config = {
                 inactive = "",
                 failed = "",
                 updateable = "",
-                updating = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'},
+                updating = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" },
             },
             sources = {
                 git = "󰊢",
@@ -48,13 +46,12 @@ local default_config = {
         },
         highlights = {
             active = "diffAdded",
-            inactive = "ErrorMsg",
+            inactive = "WarningMsg",
             updating = "WarningMsg",
-            updates_available = "",
+            updates_available = "WarningMsg",
             failed = "ErrorMsg",
             loaded = "diffAdded",
             parcel = "Special",
-            pinned = "Identifier",
             dev = "Identifier",
             source = "Special",
             version = "Type",
@@ -75,12 +72,6 @@ local default_config = {
             update_force = "f",
             update_force_all = "F",
         },
-        float = {
-            padding = 0,
-            border = "rounded",
-            mappings = {},
-            options = {},
-        },
     },
 }
 
@@ -91,8 +82,8 @@ local non_configurable_options = {
             dash = "─",
             section_sep = "│",
             section_bullet = "├",
-        }
-    }
+        },
+    },
 }
 
 --- Validate a dimension
@@ -116,21 +107,10 @@ end
 
 --- Validate a config
 ---@param _config parcel.Config
-local function validate_config(_config)
-    vim.validate({
-        ["float.padding"] = { _config.ui.float.padding, "number" },
-        ["float.border"] = { _config.ui.float.border, validate_border, "valid border" },
-        ["float.mappings"] = { _config.ui.float.mappings, "table" },
-        ["float.mappings.close"] = { _config.ui.float.mappings.close, "string" },
-        ["float.mappings.apply"] = { _config.ui.float.mappings.apply, "string" },
-        ["float.mappings.jsonpp"] = { _config.ui.float.mappings.jsonpp, "string" },
-        ["float.mappings.help"] = { _config.ui.float.mappings.help, "string" },
-        ["float.title"] = { _config.ui.float.title, "boolean" },
-        ["float.title_pos"] = { _config.ui.float.title_pos, "string" },
-        ["float.autoclose"] = { _config.ui.float.autoclose, "boolean" },
-        ["float.enter"] = { _config.ui.float.enter, "boolean" },
-        ["float.options"] = { _config.ui.float.options, "table" },
-    })
+function config.validate(_config)
+    -- vim.validate({
+    --     ["float.padding"] = { _config.ui.float.padding, "number" },
+    -- })
 end
 
 ---@type parcel.Config
@@ -144,19 +124,9 @@ end
 
 ---@param _user_config? parcel.Config
 function config.setup(_user_config)
-    user_config = vim.tbl_deep_extend("force", default_config, _user_config or {})
-    user_config = vim.tbl_deep_extend("force", user_config, non_configurable_options)
+    user_config = vim.tbl_deep_extend("force", default_config, _user_config or {}, non_configurable_options)
 
-    -- TODO: Move to constants or somewhere else
-    user_config.path = Path.join(vim.fn.stdpath("data"), "parcel")
-    user_config.namespace = vim.api.nvim_create_namespace("parcel")
-
-    -- TODO: Merge with vim.g.parcel
-
-    -- Private fields
-    user_config._parcels = {}
-
-    -- validate_config(_user_config)
+    -- config.validate(_user_config)
 
     config_loaded = true
 end
