@@ -1,6 +1,7 @@
 local constants = require("parcel.constants")
 local config = require("parcel.config")
 local diagnostics = require("parcel.diagnostics")
+local fs = require("parcel.fs")
 local Grid = require("parcel.ui.grid")
 local Lines = require("parcel.ui.lines")
 local Text = require("parcel.ui.text")
@@ -11,17 +12,25 @@ local Parcel = require("parcel.parcel")
 local Path = require("parcel.path")
 local update_checker = require("parcel.update_checker")
 local utils = require("parcel.utils")
+local highlight = require("parcel.highlight")
 
 -- TODO: Lookup column indices via column names
--- TODO: Allow marking packages for bulk operations
--- TODO: Use ui.Label for versions
 
 ---@class parcel.OnKeyCallbackContext
----@field parcel   parcel.Parcel
----@field row_pos  parcel.ui.RowPos
----@field col      integer
+---@field parcel  parcel.Parcel
+---@field row_pos parcel.ui.RowPos
+---@field col     integer
 
 ---@alias parcel.OnKeyCallback fun(overview: parcel.Overview, context: parcel.OnKeyCallbackContext)
+
+---@type table<parcel.State, string>
+local hl_by_state = {
+    [Parcel.State.Active] = "ParcelActive",
+    [Parcel.State.Inactive] = "ParcelInactive",
+    [Parcel.State.Updating] = "ParcelUpdating",
+    [Parcel.State.UpdatesAvailable] = "ParcelUpdatesAvailable",
+    [Parcel.State.Failed] = "ParcelFailed",
+}
 
 ---@type table<string, any>
 local window_options = {
@@ -168,7 +177,7 @@ function Overview:set_keymaps()
     end)
 
     self:on_key(mappings.clear_selects, function(_self, context)
-        vim.api.nvim_buf_clear_namespace(_self.buffer, constants.select_hl_namespace, 0, -1)
+        _self:clear_selected()
     end)
 
     self:on_key(mappings.previous, function(_self, context)
@@ -241,6 +250,8 @@ function Overview:set_keymaps()
             end,
         }, function(input)
             if input and input:lower() == "yes" then
+                _self:clear_selected()
+
                 vim.pack.del(vim.tbl_map(function(parcel)
                     return parcel:name()
                 end, parcels))
@@ -298,6 +309,8 @@ end
 ---@param context parcel.OnKeyCallbackContext
 ---@param force boolean?
 function Overview:update_parcels(parcels, context, force)
+    self:clear_selected()
+
     -- TODO: Throttle calls to render for spinner
     -- TODO: Make a utility method in this class to render a grid position
     -- TODO: What happens if the PackChanged evnet never fires or on errors?
@@ -395,6 +408,10 @@ function Overview:toggle_select(row_id, row)
     end
 end
 
+function Overview:clear_selected()
+    vim.api.nvim_buf_clear_namespace(self.buffer, constants.select_hl_namespace, 0, -1)
+end
+
 ---@param parcel parcel.Parcel
 ---@return parcel.ui.CellOptions[]
 function Overview:create_parcel_cells(parcel)
@@ -408,8 +425,11 @@ function Overview:create_parcel_cells(parcel)
         version = version:sub(1, 7) .. " " .. _icons.pinned
     end
 
+    -- local label_fg, label_bg = highlight.create_for_label("ParcelLabel")
+
     local version_label = Text.label({
         buffer = self.buffer,
+        -- hl = { fg = label_fg, bg = label_bg },
         hl = {
             fg = "#ffffff",
             bg = "#1398ab",
@@ -418,9 +438,9 @@ function Overview:create_parcel_cells(parcel)
     })
 
     return {
-        { Text.new({ _icons.state[parcel:state()], hl = highlights[parcel:state()] }) },
-        { Text.new({ _icons.parcel, hl = highlights.parcel }) },
-        { Text.new({ parcel:name(), hl = "String" }) },
+        { Text.new({ _icons.state[parcel:state()], hl = hl_by_state[parcel:state()] }) },
+        { Text.new({ _icons.parcel, hl = "ParcelIcon" }) },
+        { Text.new({ parcel:name(), hl = "ParcelName" }) },
         { version_label },
     }
 end
@@ -487,28 +507,28 @@ function Overview:add_subsection(parcel, offset)
     local grid = Grid.new({ buffer = self.buffer })
 
     -- TODO: Extend so we can add separate highlights for section_bullet and "Name"
-    grid:add_row({ { Text.new({ "Name", hl = "Keyword" }) }, { parcel:name() } })
-        :add_row({ { Text.new({ "Version", hl = "Keyword" }) }, { tostring(parcel:version()) } })
-        :add_row({ { Text.new({ "Revision", hl = "Keyword" }) }, { parcel:revision() } })
+    grid:add_row({ { Text.new({ "Name", hl = "ParcelSectionKey" }) }, { parcel:name() } })
+        :add_row({ { Text.new({ "Version", hl = "ParcelSectionKey" }) }, { tostring(parcel:version()) } })
+        :add_row({ { Text.new({ "Revision", hl = "ParcelSectionKey" }) }, { parcel:revision() } })
         :add_row({
-            { Text.new({ "Source", hl = "Keyword" }) },
+            { Text.new({ "Source", hl = "ParcelSectionKey" }) },
             { _icons.sources[parcel:source()] .. " " .. parcel:source_url() },
         })
-        :add_row({ { Text.new({ "Path", hl = "Keyword" }) }, { parcel:path() } })
+        :add_row({ { Text.new({ "Path", hl = "ParcelSectionKey" }) }, { parcel:path() } })
 
-    local readme_path
+    local readme_paths = fs.find_by_name(parcel:path(), { "README.md", "README.rst" })
+    local license_paths = fs.find_by_name(parcel:path(), { "LICENSE", "LICENSE.md", "LICENSE.rst" })
 
-    for _, readme in ipairs({ "README.md", "README.rst" }) do
-        readme_path = Path.join(parcel:path(), readme)
-        local readme_stat = vim.uv.fs_stat(readme_path)
+    if #readme_paths > 0 then
+        local readme_path = readme_paths[1]
 
-        if readme_stat then
-            break
-        end
+        grid:add_row({ { Text.new({ "Docs", hl = "ParcelSectionKey" }) }, { vim.fs.basename(readme_path) } })
     end
 
-    if readme_path then
-        grid:add_row({ { Text.new({ "README", hl = "Keyword" }) }, { readme_path } })
+    if #license_paths > 0 then
+        local license_path = license_paths[1]
+
+        grid:add_row({ { Text.new({ "License", hl = "ParcelSectionKey" }) }, { vim.fs.basename(license_path) } })
     end
 
     section:newline():add(grid):newline()
@@ -570,9 +590,9 @@ function Overview:render()
 
     -- TODO: Add active/inactive counts
     self.lines
-        :add(Text.new({ ("Packages (%d)"):format(#parcels), hl = "Title" }))
+        :add(Text.new({ ("Packages (%d)"):format(#parcels), hl = "ParcelTitle" }))
         :newline()
-        :add(Text.new({ "Press g? for help.", hl = "Comment" }))
+        :add(Text.new({ "Press g? for help.", hl = "ParcelHelpText" }))
         :newline()
 
     self.parcel_row_offset = self.lines:size()

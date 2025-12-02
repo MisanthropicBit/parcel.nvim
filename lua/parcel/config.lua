@@ -46,18 +46,6 @@ local default_config = {
                 git = "󰊢",
             },
         },
-        highlights = {
-            active = "diffAdded",
-            inactive = "WarningMsg",
-            updating = "WarningMsg",
-            updates_available = "WarningMsg",
-            failed = "ErrorMsg",
-            loaded = "diffAdded",
-            parcel = "Special",
-            dev = "Identifier",
-            source = "Special",
-            version = "Type",
-        },
         mappings = {
             collapse_all = "c",
             delete = "x",

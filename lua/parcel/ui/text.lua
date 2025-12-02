@@ -91,6 +91,7 @@ function Text:set_highlight(buffer, row, col)
     return row + 1
 end
 
+-- Label inspired by Snacks.gh badges
 ---@param options parcel.ui.LabelOptions
 function Text.label(options)
     -- TODO: Check if both seps are given or missing
