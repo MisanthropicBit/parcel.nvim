@@ -24,6 +24,10 @@ local Parcel = require("parcel.parcel")
 --     match = "/Users/hyrule/.local/share/nvim/site/pack/core/opt/vim-bracketed-paste"
 --   } }
 
+---@class parcel.GetStateOptions
+---@field info boolean?
+---@field exclude_states parcel.State[]?
+
 ---@class PackEventData
 ---@field active boolean
 ---@field kind   "install" | "update" | "delete"
@@ -72,11 +76,13 @@ function state.remove_parcel(data)
     parcels[name] = nil
 end
 
----@param options { exclude_states: parcel.State[]? }?
+---@param options parcel.GetStateOptions?
 ---@return table<string, parcel.Parcel>
 function state.parcels(options)
+    local _options = options or {}
+
     if #parcels == 0 then
-        local packinfo = vim.pack.get()
+        local packinfo = vim.pack.get(nil, { info = _options.info ~= false and true or false })
 
         for _, info in ipairs(packinfo) do
             parcels[info.spec.name] = Parcel.new({ spec = info })
@@ -85,9 +91,9 @@ function state.parcels(options)
 
     local filtered_parcels = vim.deepcopy(parcels)
 
-    if options and options.exclude_states and #options.exclude_states > 0 then
+    if _options.exclude_states and #_options.exclude_states > 0 then
         for name, parcel in pairs(parcels) do
-            if not vim.list_contains(options.exclude_states, parcel:state()) then
+            if not vim.list_contains(_options.exclude_states, parcel:state()) then
                 filtered_parcels[name] = parcel
             end
         end
@@ -96,7 +102,7 @@ function state.parcels(options)
     return filtered_parcels
 end
 
----@param options { exclude_states: parcel.State[]? }?
+---@param options parcel.GetStateOptions?
 function state.parcel_list(options)
     return vim.tbl_values(state.parcels(options))
 end

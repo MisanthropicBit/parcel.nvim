@@ -150,11 +150,15 @@ end
 
 --- Run a bunch of tasks and wait for them all to complete
 local wait_all = Task.wrap(function(tasks, options, callback)
+    ---@cast tasks parcel.Task[]
+    ---@cast options parcel.task.WaitOptions?
+    ---@cast callback fun(boolean, table)
+
     local done = 0
     local task_idx = 1
     local results = {}
     local _options = options or {}
-    local concurrency = options.concurrency or #tasks
+    local concurrency = options and options.concurrency or #tasks
     local timeout = _options.timeout or nil
     local timed_out = false
     local running_tasks = {}
@@ -165,19 +169,41 @@ local wait_all = Task.wrap(function(tasks, options, callback)
     ---@param idx integer
     local function run_next_task(idx)
         if task_idx <= #tasks and not timed_out then
-            table.insert(running_tasks, Task.run(tasks[task_idx], task_callback(idx)))
+            local task = tasks[task_idx]
+
+            if task:running() then
+                require("parcel.log").error("running", task:running())
+                task:set_callback(task_callback(idx))
+                table.insert(running_tasks, task)
+            elseif task:done() or task:cancelled() or task:failed() then
+                -- Task is already done somehow so call the task callback
+                -- immediately then run the next task
+                task_callback(idx)(task:failed(), task:result())
+                task_idx = task_idx + 1
+                run_next_task(task_idx)
+
+                return
+            else
+                table.insert(running_tasks, Task.run(tasks[task_idx], task_callback(idx)))
+            end
+
+            task_idx = task_idx + 1
+        else
             task_idx = task_idx + 1
         end
     end
 
     task_callback = function(idx)
         return function(ok, result)
+            require("parcel.log").error("task_callback", ok)
+            if timed_out then
+                return
+            end
+
             done = done + 1
             results[idx] = { ok = ok, result = result }
 
-            if timed_out then
-                return
-            elseif done == #tasks then
+            if done == #tasks then
                 -- Finished all tasks, call callback with the results
                 callback(true, results)
             else
@@ -187,11 +213,8 @@ local wait_all = Task.wrap(function(tasks, options, callback)
         end
     end
 
-    -- Initially start 'concurrency' number of tasks
-    while task_idx <= concurrency do
-        run_next_task(task_idx)
-    end
-
+    -- Start the timeout first since it will immediately wait whereas user tasks
+    -- may not
     if timeout and #tasks > 0 then
         Task.run(function()
             Task.sleep(timeout)
@@ -204,9 +227,14 @@ local wait_all = Task.wrap(function(tasks, options, callback)
             callback(false, Task.timeout)
         end)
     end
+
+    -- Initially start 'concurrency' number of tasks
+    while task_idx <= concurrency do
+        run_next_task(task_idx)
+    end
 end, 3, { async_only = true })
 
----@class WaitAllResult
+---@class parcel.task.WaitAllResult
 ---@field ok boolean
 ---@field result any
 
@@ -214,7 +242,7 @@ end, 3, { async_only = true })
 ---@param tasks (function | parcel.Task)[]
 ---@param options parcel.task.WaitOptions?
 ---@return boolean # whether execution succeeded or not (e.g. false if timed out)
----@return WaitAllResult[] # result of execution
+---@return parcel.task.WaitAllResult[] # result of execution
 function Task.wait_all(tasks, options)
     return wait_all(tasks, options)
 end
@@ -297,7 +325,7 @@ function Task:check_state()
 end
 
 --- Set the callback to call when the task finishes
----@private
+---@package
 ---@param callback parcel.task.Callback?
 function Task:set_callback(callback)
     self._run_callback = callback
@@ -379,6 +407,11 @@ function Task:start(...)
     step(...)
 
     return self
+end
+
+---@return any
+function Task:result()
+    return self._result
 end
 
 ---@return boolean

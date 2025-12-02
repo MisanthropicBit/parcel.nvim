@@ -136,7 +136,7 @@ function Logger:log(level_name, ...)
         return true
     end
 
-    local info = debug.getinfo(2, "Sl")
+    local info = debug.getinfo(4, "Sl")
     local fileinfo = ("%s:%s"):format(info.short_src, info.currentline)
     local parts = {
         table.concat({

@@ -102,6 +102,15 @@ function Grid:row_ids()
     return self._row_ids
 end
 
+---@param row_id parcel.ui.RowId
+---@return integer, integer
+function Grid:get_row_id_pos(row_id)
+    local extmark = self:get_extmark_by_id(row_id)
+    vim.print(vim.inspect({ "extmark", extmark }))
+
+    return extmark[1], extmark[2]
+end
+
 ---@private
 ---@param id integer
 ---@return vim.api.keyset.get_extmark_item_by_id

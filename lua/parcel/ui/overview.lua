@@ -104,9 +104,20 @@ function Overview:open(options)
         vim.api.nvim_set_option_value(option, value, { buf = self.buffer })
     end
 
-    if config.check_for_updates then
-        -- TODO: When window is hidden, stop update_checker
+    if config.update_checker.enable then
+        update_checker.listen(function(parcels)
+            self:set_update_available_diagnostics(parcels)
+        end)
+
         update_checker.start()
+
+        -- TODO: Any other events we should listen to?
+        vim.api.nvim_create_autocmd("WinClosed", {
+            pattern = tostring(self.win_id),
+            group = constants.augroup,
+            once = true,
+            callback = update_checker.stop,
+        })
     end
 
     -- Listen to state change events and re-render the ui if necessary
@@ -324,30 +335,27 @@ function Overview:focus()
     return true
 end
 
----@param notification parcel.StateChangeNotifcation
-function Overview:notify_change(notification)
-    if not self:visible() then
-        return
-    end
+---@private
+---@param parcels parcel.Parcel[]
+function Overview:set_update_available_diagnostics(parcels)
+    -- if not self:visible() then
+    --     return
+    -- end
 
-    ---@diagnostic disable-next-line: empty-block
-    if notification.type == "state" then
-        -- TODO:
-        -- local row_id = self.parcel_to_row_id[notification.name]
-        -- self.grid:set_cell(notification.state, row_id, 1)
-    elseif notification.type == "update_available" then
-        local parcel_diagnostics = vim.tbl_map(function(parcel)
-            return diagnostics.create(0, {
-                col = 0,
-                lnum = 0,
-                message = config.icons.state.updateable .. " update available",
-                bufnr = self.buffer,
-                severity = vim.diagnostic.severity.WARN,
-            })
-        end, notification.parcels)
+    local parcel_diagnostics = vim.tbl_map(function(parcel)
+        local row_id = self.parcel_to_row_id[parcel:name()]
+        local row, _ = self.grid:get_row_id_pos(row_id)
 
-        diagnostics.set(self.buffer, parcel_diagnostics)
-    end
+        return diagnostics.create(row_id, {
+            col = 0,
+            lnum = row,
+            message = config.ui.icons.state.updateable .. " update available",
+            bufnr = self.buffer,
+            severity = vim.diagnostic.severity.WARN,
+        })
+    end, parcels)
+
+    diagnostics.set(self.buffer, parcel_diagnostics)
 end
 
 ---@param row_id parcel.ui.RowId

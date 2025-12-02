@@ -16,7 +16,9 @@ local default_config = {
     log_level = vim.log.levels.WARN,
     concurrency = 4,
     update_checker = {
+        enable = true,
         concurrency = 4,
+        interval_ms = 1 * 60 * 60 * 1000,
         timeout_ms = 10000,
     },
     ui = {
