@@ -133,10 +133,6 @@ function update_checker.check(parcels, options)
             return
         end
 
-        -- local updateable_parcels = vim.tbl_filter(function(result)
-        --     return result.result ~= nil
-        -- end, results)
-
         ---@type parcel.Parcel[]
         local updateable_parcels = vim.iter(results):filter(function(result)
             return result.result ~= nil
