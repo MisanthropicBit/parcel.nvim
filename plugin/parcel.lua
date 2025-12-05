@@ -33,5 +33,6 @@ end
 
 vim.api.nvim_create_user_command("Parcel", run_command, {
     nargs = "?",
-    complete = complete
+    complete = complete,
+    bar = true,
 })
