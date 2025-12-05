@@ -2,7 +2,7 @@
 -- that avoids callback hell.
 --
 -- It uses lua coroutines which suspend when calling an asynchronous function
--- (like vim.loop.fs_stat) and overrides its callback to resume the suspended
+-- (like vim.uv.fs_stat) and overrides its callback to resume the suspended
 -- coroutine, allowing await-style programming.
 --
 -- The async.wrap function transforms a callback-style asynchronous function
@@ -14,15 +14,6 @@
 ---@field timeout integer? timeout in milliseconds
 
 ---@alias parcel.task.Callback fun(ok: boolean, results_or_error: any)
-
---- Check if we are currently in an async (coroutine) context
-local function require_async_context()
-    local thread, is_main = coroutine.running()
-
-    if is_main then
-        error("Cannot call async function in non-async context")
-    end
-end
 
 ---@param msg string
 ---@param ... any
@@ -37,12 +28,10 @@ end
 ---@param results any
 ---@param err any
 local function handle_callback(task, callback, results, err)
-    -- vim.print(vim.inspect(err))
     if callback ~= nil then
         if err == nil then
             callback(true, unpack(results, 2, table.maxn(results)))
         else
-            ---@diagnostic disable-next-line: invisible
             task:set_error(err)
             callback(false, err)
         end
@@ -81,6 +70,8 @@ Task.__index = Task
 --- Value returned when a task times out
 Task.timeout = "timeout"
 
+---@param maybe_task unknown
+---@return boolean
 function Task.is_task(maybe_task)
     return getmetatable(maybe_task) == Task
 end
@@ -91,22 +82,21 @@ end
 ---@param ... unknown any extra arguments for the initial invocation of the task
 ---@return parcel.Task
 function Task.run(func_or_task, callback, ...)
-    if Task.is_task(func_or_task) then
-        func_or_task:check_state()
-    end
-
     local task = func_or_task
 
-    if type(func_or_task) == "function" then
+    if Task.is_task(func_or_task) then
+        ---@cast func_or_task -function
+        func_or_task:check_state()
+        task = func_or_task
+    else
+        ---@cast func_or_task -parcel.Task
         task = Task.new(func_or_task)
     end
 
     ---@cast task parcel.Task
-
     task:set_callback(callback)
-    task:start(...)
 
-    return task
+    return task:start(...)
 end
 
 -- Wraps a callback-style asynchronous function, returning a function which
@@ -118,21 +108,21 @@ end
 ---@return function
 function Task.wrap(func, argc, options)
     return function(...)
-        local _, is_main = coroutine.running()
+        local is_main = coroutine.running()
 
-        if not is_main then
-            -- Not in main coroutine, yield back to step function
-            local results = { coroutine.yield(argc, func, ...) }
-
-            return unpack(results)
-        else
+        if is_main == nil then
             if options and options.async_only then
-                require_async_context()
+                error("Cannot call async-only function in non-async context")
             end
 
             -- Allow calling wrapped functions in non-async contexts
             -- TODO: Return from this as well?
             func(...)
+        else
+            -- Not in main coroutine, yield back to step function
+            local results = { coroutine.yield(argc, func, ...) }
+
+            return unpack(results)
         end
     end
 end
@@ -172,7 +162,6 @@ local wait_all = Task.wrap(function(tasks, options, callback)
             local task = tasks[task_idx]
 
             if task:running() then
-                require("parcel.log").error("running", task:running())
                 task:set_callback(task_callback(idx))
                 table.insert(running_tasks, task)
             elseif task:done() or task:cancelled() or task:failed() then
@@ -195,7 +184,6 @@ local wait_all = Task.wrap(function(tasks, options, callback)
 
     task_callback = function(idx)
         return function(ok, result)
-            require("parcel.log").error("task_callback", ok)
             if timed_out then
                 return
             end
@@ -263,7 +251,7 @@ local first = Task.wrap(function(tasks, callback)
                     end
                 end
 
-                callback(...)
+                callback(true, ...)
             end
         end)
 
@@ -306,10 +294,15 @@ function Task.new(func)
 end
 
 ---@private
+
 function Task:check_state()
-    if self:started() then
-        error("Cannot run task that has already been started")
+    if self:running() then
+        error("Cannot run task that is already running")
     end
+
+    -- if self:started() then
+    --     error("Cannot run task that has already been started")
+    -- end
 
     if self:failed() then
         error("Cannot run task that has failed")
@@ -343,7 +336,7 @@ function Task:start(...)
     local thread = self:coroutine()
 
     local function callback(ok, result)
-        self._end_time = vim.loop.hrtime()
+        self._end_time = vim.uv.hrtime()
         self._failed = not ok
         self._result = result
 
@@ -355,7 +348,7 @@ function Task:start(...)
 
     -- This function takes a step in an asynchronous function (coroutine),
     -- running until it hits an asynchronous function call wrapped using
-    -- async.wrap (such as vim.loop.fs_stat) which will yield back to the
+    -- async.wrap (such as vim.uv.fs_stat) which will yield back to the
     -- below coroutine.resume.
     --
     -- The asynchronous function's callback will be overriden to instead call
@@ -403,7 +396,7 @@ function Task:start(...)
         err_or_fn(unpack(args, 1, nargs))
     end
 
-    self._start_time = vim.loop.hrtime()
+    self._start_time = vim.uv.hrtime()
     step(...)
 
     return self
@@ -436,10 +429,10 @@ end
 
 ---@return boolean
 function Task:running()
-    return self:started() and not self:done()
+    return self:started() and not self:done() and not self:cancelled()
 end
 
----@private
+---@package
 ---@param err any
 function Task:set_error(err)
     self._error = err
@@ -464,8 +457,9 @@ local wait = Task.wrap(function(self, timeout, callback)
         error("Cannot wait for task that has not been started")
     end
 
+    -- If we are already done, failed, or cancelled call the callback immediately
     if self:done() or self:failed() or self:cancelled() then
-        callback()
+        callback(not self:failed(), self:error())
         return
     end
 
@@ -497,7 +491,7 @@ function Task:elapsed_ms()
         return -1
     end
 
-    local end_time = self._end_time or vim.loop.hrtime()
+    local end_time = self._end_time or vim.uv.hrtime()
 
     return (end_time - self._start_time) / 1000000
 end
