@@ -489,13 +489,22 @@ end
 --     return lines
 -- end
 
+---@private
+---@param title string
+---@param value string
+function Overview:create_section(title, value)
+    local title_text = { Text.new({ title, hl = "ParcelSectionKey" }) }
+    local value_text = { value }
+
+    return { title_text, value_text }
+end
+
 ---@param parcel parcel.Parcel
 ---@return parcel.ui.Lines
 function Overview:add_subsection(parcel, offset)
     -- TODO: Let the source (only git for now) render the subsection
     local _icons = config.ui.icons
-    local section_bullet = _icons.bullet
-    local section_double_bullet = _icons.section_sep .. _icons.dash
+    -- local section_bullet = _icons.bullet
 
     local section = Lines.new({
         buffer = self.buffer,
@@ -504,32 +513,26 @@ function Overview:add_subsection(parcel, offset)
     })
 
     local parcel_state = parcel:state()
+    local path = parcel:path()
     local grid = Grid.new({ buffer = self.buffer })
+    local source_url = _icons.sources[parcel:source()] .. " " .. parcel:source_url()
 
     -- TODO: Extend so we can add separate highlights for section_bullet and "Name"
-    grid:add_row({ { Text.new({ "Name", hl = "ParcelSectionKey" }) }, { parcel:name() } })
-        :add_row({ { Text.new({ "Version", hl = "ParcelSectionKey" }) }, { tostring(parcel:version()) } })
-        :add_row({ { Text.new({ "Revision", hl = "ParcelSectionKey" }) }, { parcel:revision() } })
-        :add_row({
-            { Text.new({ "Source", hl = "ParcelSectionKey" }) },
-            { _icons.sources[parcel:source()] .. " " .. parcel:source_url() },
-        })
-        :add_row({ { Text.new({ "Path", hl = "ParcelSectionKey" }) }, { parcel:path() } })
+    -- TODO: Shorten version if git sha
+    grid:add_row(self:create_section("Name", parcel:name()))
+        :add_row(self:create_section("Version", tostring(parcel:version())))
+        :add_row(self:create_section("Revision", parcel:revision()))
+        :add_row(self:create_section("Source", source_url))
+        :add_row(self:create_section("Path", path))
 
-    local readme_paths = fs.find_by_name(parcel:path(), { "README.md", "README.rst" })
-    local license_paths = fs.find_by_name(parcel:path(), { "LICENSE", "LICENSE.md", "LICENSE.rst" })
+    local doc_path = utils.find_docs(path)
+    local license = utils.find_license(path)
 
-    if #readme_paths > 0 then
-        local readme_path = readme_paths[1]
-
-        grid:add_row({ { Text.new({ "Docs", hl = "ParcelSectionKey" }) }, { vim.fs.basename(readme_path) } })
-    end
-
-    if #license_paths > 0 then
-        local license_path = license_paths[1]
-
-        grid:add_row({ { Text.new({ "License", hl = "ParcelSectionKey" }) }, { vim.fs.basename(license_path) } })
-    end
+    -- TODO: Add help file
+    -- TODO: Add branch (git source)
+    -- TODO: Add commit (git source)
+    grid:add_row(self:create_section("Docs", doc_path or "-"))
+        :add_row(self:create_section("License", (license and license.name) or "-"))
 
     section:newline():add(grid):newline()
 
