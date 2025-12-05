@@ -47,7 +47,6 @@ function Text.new(options)
             table.insert(text._values, value[1])
             table.insert(text._highlights, value.hl and highlight.create(value.hl) or "")
         end
-        vim.print(vim.inspect(text._highlights))
     end
 
     return setmetatable(text, Text)

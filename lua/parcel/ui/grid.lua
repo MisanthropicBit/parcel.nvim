@@ -106,7 +106,6 @@ end
 ---@return integer, integer
 function Grid:get_row_id_pos(row_id)
     local extmark = self:get_extmark_by_id(row_id)
-    vim.print(vim.inspect({ "extmark", extmark }))
 
     return extmark[1], extmark[2]
 end
