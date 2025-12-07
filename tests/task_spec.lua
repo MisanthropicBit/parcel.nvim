@@ -80,6 +80,69 @@ describe("task #task", function()
         assert.is_true(task:elapsed_ms() >= 100)
     end)
 
+    async.it("gets result if waiting on a finished task", function()
+        local task = Task.run(function()
+            Task.sleep(500)
+
+            return "done"
+        end)
+
+        local ok1, result1 = task:wait()
+
+        assert.is_false(task:failed())
+        assert.is_false(task:cancelled())
+        assert.is_true(task:started())
+        assert.is_true(task:done())
+        assert.is_false(task:running())
+
+        local ok2, result2 = task:wait()
+
+        assert.are.same(ok1, ok2)
+        assert.are.same(result1, result2)
+    end)
+
+    async.it("gets error if waiting on a failed task", function()
+        local task = Task.run(function()
+            Task.sleep(500)
+
+            error("Oh no")
+        end)
+
+        local ok1, result1 = task:wait()
+
+        assert.is_true(task:failed())
+        assert.is_false(task:cancelled())
+        assert.is_true(task:started())
+        assert.is_true(task:done())
+        assert.is_false(task:running())
+
+        local ok2, result2 = task:wait()
+
+        assert.are.same(ok1, ok2)
+        assert.are.same(result1, result2)
+    end)
+
+    async.it("gets nil if waiting on a cancelled task", function()
+        local task = Task.run(function()
+            Task.sleep(500)
+        end)
+
+        task:cancel()
+
+        local ok1, result1 = task:wait()
+
+        assert.is_false(task:failed())
+        assert.is_true(task:cancelled())
+        assert.is_true(task:started())
+        assert.is_true(task:done())
+        assert.is_false(task:running())
+
+        local ok2, result2 = task:wait()
+
+        assert.are.same(ok1, ok2)
+        assert.are.same(result1, result2)
+    end)
+
     async.it("does not run a task that is already running", function()
         local task = Task.run(function()
             Task.sleep(500)
@@ -90,13 +153,22 @@ describe("task #task", function()
         end, "Cannot run task that is already running")
     end)
 
+    async.it("does not start a task that is already running", function()
+        local task = Task.run(function()
+            Task.sleep(500)
+        end)
+
+        assert.has_error(function()
+            task:start()
+        end, "Cannot run task that is already running")
+    end)
+
     async.it("does not run a task that has failed", function()
         local task = Task.run(function()
             error("Oh no")
         end, function() end)
 
         task:wait()
-        vim.print(task:failed())
 
         assert.has_error(function()
             Task.run(task)
@@ -117,15 +189,15 @@ describe("task #task", function()
 
     async.it("does not run a task that has been cancelled", function()
         local task = Task.run(function()
-            Task.sleep(500)
-            Task.sleep(500)
+            Task.sleep(100)
+            Task.sleep(100)
         end)
 
         task:cancel()
         local ok, result = task:wait()
 
-        -- assert.are.same(ok, false)
-        -- assert.are.same(result, "Task was cancelled")
+        assert.are.same(ok, false)
+        assert.are.same(result, Task.cancelled)
 
         assert.has_error(function()
             Task.run(task)
@@ -161,7 +233,8 @@ describe("task #task", function()
         assert.is_false(task:running())
     end)
 
-    pending("runs a task, without a callback, that fails", function()
+    async.it("runs a task, without a callback, that fails", function()
+        error("Nope")
         local task = Task.new(function()
             error("Oh no")
         end)
@@ -173,7 +246,7 @@ describe("task #task", function()
         local ok, result = task:wait()
 
         assert.are.same(ok, false)
-        assert.matches("^Task failed without callback:\nstack traceback:", result)
+        assert.matches("^Task failed without callback", result)
 
         assert.is_true(task:started())
         assert.is_true(task:failed())
@@ -296,6 +369,31 @@ describe("task #task", function()
                 assert.is_false(tasks[idx]:running())
             end
         end)
+
+        async.it("runs multiple tasks and waits for them to finish but times out", function()
+            local tasks = vim.iter({ 5000, 5000, 5000 })
+                :map(function(sleep_time)
+                    return Task.new(function()
+                        Task.sleep(sleep_time)
+
+                        return sleep_time
+                    end)
+                end)
+                :totable()
+
+            local ok, results = Task.wait_all(tasks, { timeout = 10 })
+
+            assert.are.same(ok, false)
+            assert.are.same(results, Task.timeout)
+
+            for idx = 1, #tasks do
+                assert.is_true(tasks[idx]:started())
+                assert.is_false(tasks[idx]:failed())
+                assert.is_true(tasks[idx]:cancelled())
+                assert.is_false(tasks[idx]:done())
+                assert.is_false(tasks[idx]:running())
+            end
+        end)
     end)
 
     describe("first", function()
@@ -333,5 +431,7 @@ describe("task #task", function()
             assert.is_false(tasks[3]:done())
             assert.is_false(tasks[3]:running())
         end)
+
+        async.it("runs multiple tasks, getting the result of the first to finish but times out", function() end)
     end)
 end)
