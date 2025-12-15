@@ -134,6 +134,19 @@ function Task.run(func_or_task, callback, ...)
     return task:start(...)
 end
 
+--- Create and immediately run an asynchronous task that logs if the task fails
+--- (so no errors will be thrown)
+---@param func_or_task function | parcel.Task
+---@param ... unknown any extra arguments for the initial invocation of the task
+---@return parcel.Task
+function Task.run_with_logging(func_or_task, ...)
+    return Task.run(func_or_task, function(ok, result)
+        if not ok then
+            require("parcel.log").error(result)
+        end
+    end, ...)
+end
+
 -- Wraps a callback-style asynchronous function, returning a function which
 -- instead uses coroutines to start and resuming when the original callback is
 -- invoked

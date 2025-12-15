@@ -112,7 +112,7 @@ function update_checker.check(parcels, options)
 
     last_check_time = elapsed_ms()
 
-    Task.run(function()
+    Task.run_with_logging(function()
         local check_tasks = {}
 
         for _, parcel in ipairs(parcels) do
