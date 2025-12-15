@@ -124,7 +124,7 @@ function update_checker.check(parcels, options)
         })
 
         if not ok then
-            if results == Task.timeout then
+            if results == Task.Timeout then
                 log.warn("update_checker: Timed out when checking one or more parcels", results)
             else
                 log.error("update_checker: Failed to check one or more parcels", results)

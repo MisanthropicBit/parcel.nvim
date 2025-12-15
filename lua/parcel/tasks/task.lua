@@ -62,11 +62,10 @@ local Task = {}
 Task.__index = Task
 
 --- Value returned when a task times out
-Task.timeout = "timeout"
+Task.Timeout = "Timeout"
 
 --- Value returned when a task gets cancelled
--- TODO: Same name as method (call it TaskResult?)
-Task.cancelled = "cancelled"
+Task.Cancelled = "Cancelled"
 
 ---@param maybe_task unknown
 ---@return boolean
@@ -152,7 +151,7 @@ local function timeout_task(timeout, num_tasks, state)
             running_task:cancel()
         end
 
-        callback(false, Task.timeout)
+        callback(false, Task.Timeout)
     end)
 end
 
@@ -210,6 +209,10 @@ local wait_all = Task.wrap(function(tasks, options, callback)
 
     ---@param idx integer
     local function run_next_task(idx)
+        if idx > #tasks then
+            return
+        end
+
         local task = tasks[task_idx]
         task_idx = task_idx + 1
 
@@ -258,7 +261,7 @@ local wait_all = Task.wrap(function(tasks, options, callback)
 
             timed_out = true
             cancel_tasks(running_tasks)
-            callback(false, Task.timeout)
+            callback(false, Task.Timeout)
         end)
     end
 
@@ -301,7 +304,7 @@ local first = Task.wrap(function(tasks, options, callback)
 
             timed_out = true
             cancel_tasks(running_tasks)
-            callback(false, Task.timeout)
+            callback(false, Task.Timeout)
         end)
     end
 
@@ -398,18 +401,20 @@ function Task:handle_callback(ok, result)
     if ok then
         self._result = unpack(result, 2, table.maxn(result))
     else
-        if not self:cancelled() then
-            self._failed = true
-        end
-
+        self._failed = not self:cancelled()
         self._result = result
     end
 
     self._end_time = vim.uv.hrtime()
 
     if self._run_callback or self._wait_callback then
-        pcall(self._run_callback, ok, self:result())
-        pcall(self._wait_callback, ok, self:result())
+        if self._run_callback then
+            self._run_callback(ok, self:result())
+        end
+
+        if self._wait_callback then
+            self._wait_callback(ok, self:result())
+        end
     else
         if self:failed() then
             -- This is essentially an unhandled promise rejection
@@ -445,7 +450,7 @@ function Task:start(...)
     -- programming
     step = function(...)
         if self:cancelled() then
-            self:handle_callback(false, "cancelled")
+            self:handle_callback(false, Task.Cancelled)
             return
         end
 
@@ -550,7 +555,7 @@ function Task:cancel()
     end
 
     self._cancelled = true
-    self._result = "cancelled"
+    self._result = Task.Cancelled
 end
 
 -- TODO: Check that we are not waiting inside ourselves
@@ -573,7 +578,7 @@ local wait = Task.wrap(function(self, timeout, callback)
 
             if self:running() then
                 self:cancel()
-                callback(false, Task.timeout)
+                callback(false, Task.Timeout)
             end
         end)
     end
