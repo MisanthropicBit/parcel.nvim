@@ -101,6 +101,24 @@ describe("task #task", function()
         assert.are.same(result1, result2)
     end)
 
+    async.it("gets the current task inside a task", function()
+        local current_task
+
+        local task = Task.run(function()
+            current_task = Task.current()
+        end)
+
+        task:wait()
+
+        assert.is_false(task:failed())
+        assert.is_false(task:cancelled())
+        assert.is_true(task:started())
+        assert.is_true(task:completed())
+        assert.is_false(task:running())
+
+        assert.are.same(current_task, task)
+    end)
+
     async.it("gets error if waiting on a failed task", function()
         local task = Task.run(function()
             Task.sleep(500)
@@ -202,7 +220,7 @@ describe("task #task", function()
         local ok, result = task:wait()
 
         assert.are.same(ok, false)
-        assert.are.same(result, "cancelled")
+        assert.are.same(result, Task.Cancelled)
 
         assert.is_true(task:started())
         assert.is_false(task:failed())
@@ -231,6 +249,43 @@ describe("task #task", function()
         assert.has_error(function()
             task:cancel()
         end, "Attempt to cancel task that was already cancelled")
+    end)
+
+    async.it("cancels child tasks", function()
+        local child_task1, child_task2
+
+        local parent_task = Task.run(function()
+            child_task1 = Task.run(function()
+                Task.sleep(5000)
+            end)
+
+            child_task2 = Task.run(function()
+                Task.sleep(5000)
+            end)
+
+            Task.wait_all({ child_task1, child_task2 })
+        end)
+
+        parent_task:cancel()
+        parent_task:wait()
+
+        assert.is_false(parent_task:failed())
+        assert.is_true(parent_task:cancelled())
+        assert.is_true(parent_task:started())
+        assert.is_false(parent_task:completed())
+        assert.is_false(parent_task:running())
+
+        assert.is_false(child_task1:failed())
+        assert.is_true(child_task1:cancelled())
+        assert.is_true(child_task1:started())
+        assert.is_false(child_task1:completed())
+        assert.is_false(child_task1:running())
+
+        assert.is_false(child_task2:failed())
+        assert.is_true(child_task2:cancelled())
+        assert.is_true(child_task2:started())
+        assert.is_false(child_task2:completed())
+        assert.is_false(child_task2:running())
     end)
 
     async.it("runs a task that fails", function()
@@ -299,7 +354,7 @@ describe("task #task", function()
         assert.is_false(task:running())
 
         assert.are.same(ok, false)
-        assert.are.same(result, Task.timeout)
+        assert.are.same(result, Task.Timeout)
     end)
 
     -- FIX:
@@ -421,7 +476,7 @@ describe("task #task", function()
             local ok, results = Task.wait_all(tasks, { timeout = 10 })
 
             assert.are.same(ok, false)
-            assert.are.same(results, Task.timeout)
+            assert.are.same(results, Task.Timeout)
 
             for idx = 1, #tasks do
                 assert.is_true(tasks[idx]:started())
@@ -492,7 +547,7 @@ describe("task #task", function()
             assert.are.same(ok, false)
             assert.are.same(results, {
                 { ok = true, result = 500 },
-                { ok = false, result = "cancelled" },
+                { ok = false, result = Task.Cancelled },
                 { ok = true, result = 500 },
             })
 
@@ -568,7 +623,7 @@ describe("task #task", function()
             assert.matches("^Task failed: .+:%d+: Oh no\nstack traceback:", results[2].result)
 
             assert.is_false(results[3].ok)
-            assert.are.same(results[3].result, "cancelled")
+            assert.are.same(results[3].result, Task.Cancelled)
 
             assert.is_true(results[4].ok)
             assert.is_nil(results[4].result)
@@ -657,7 +712,7 @@ describe("task #task", function()
             local ok, result = Task.first(tasks, { timeout = 10 })
 
             assert.is_false(ok)
-            assert.are.same(result, Task.timeout)
+            assert.are.same(result, Task.Timeout)
 
             for idx = 1, #tasks do
                 assert.is_true(tasks[idx]:started())

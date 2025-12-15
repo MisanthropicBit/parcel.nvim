@@ -28,6 +28,9 @@
 
 local NANO_TO_MILLISECONDS = 1000000
 
+---@type table<thread, parcel.Task>
+local _running_tasks = {}
+
 ---@return boolean
 local function is_main_coroutine()
     return coroutine.running() == nil
@@ -57,6 +60,8 @@ end
 ---@field private _end_time number
 ---@field private _failed boolean
 ---@field private _cancelled boolean
+---@field private _parent parcel.Task?
+---@field private _child_tasks table<number, parcel.Task>
 local Task = {}
 
 Task.__index = Task
@@ -71,6 +76,39 @@ Task.Cancelled = "Cancelled"
 ---@return boolean
 function Task.is_task(maybe_task)
     return getmetatable(maybe_task) == Task
+end
+
+--- Get the currently running task
+---@return parcel.Task?
+function Task.current()
+    if is_main_coroutine() then
+        return nil
+    end
+
+    return _running_tasks[coroutine.running()]
+end
+
+---@return integer
+function Task:id()
+    return self._id
+end
+
+---@private
+---@return parcel.Task?
+function Task:parent()
+    return self._parent
+end
+
+---@private
+---@param task parcel.Task
+function Task:add_child_task(task)
+    self._child_tasks[task:id()] = task
+end
+
+---@private
+---@param task parcel.Task
+function Task:remove_child_task(task)
+    self._child_tasks[task:id()] = nil
 end
 
 --- Create and immediately run an asynchronous task
@@ -366,6 +404,8 @@ function Task.new(func)
         _end_time = nil,
         _failed = false,
         _cancelled = false,
+        _parent = nil,
+        _child_tasks = {},
     }, Task)
 end
 
@@ -406,6 +446,11 @@ function Task:handle_callback(ok, result)
     end
 
     self._end_time = vim.uv.hrtime()
+    _running_tasks[self:coroutine()] = nil
+
+    if self:parent() then
+        self:parent():remove_child_task(self)
+    end
 
     if self._run_callback or self._wait_callback then
         if self._run_callback then
@@ -436,6 +481,12 @@ function Task:start(...)
     local step = nil
     self._coroutine = coroutine.create(self._func)
     local thread = self:coroutine()
+
+    self._parent = Task.current()
+
+    if self._parent then
+        self._parent:add_child_task(self)
+    end
 
     ---@cast thread thread
 
@@ -498,6 +549,7 @@ function Task:start(...)
         err_or_fn(unpack(args, 1, nargs))
     end
 
+    _running_tasks[thread] = self
     self._start_time = vim.uv.hrtime()
     step(...)
 
@@ -556,6 +608,12 @@ function Task:cancel()
 
     self._cancelled = true
     self._result = Task.Cancelled
+
+    for _, child_task in pairs(self._child_tasks) do
+        if not child_task:cancelled() then
+            child_task:cancel()
+        end
+    end
 end
 
 -- TODO: Check that we are not waiting inside ourselves
