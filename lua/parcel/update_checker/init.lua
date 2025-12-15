@@ -27,9 +27,12 @@ local function elapsed_ms()
     return vim.uv.hrtime() / 1000000
 end
 
+---@async
 ---@param parcels parcel.Parcel[]
 local function notify_listeners(parcels)
     for _, listener in ipairs(update_check_listeners) do
+        -- Await the scheduler as each listener might not be async
+        Task.wait_scheduler()
         listener(parcels)
     end
 end
