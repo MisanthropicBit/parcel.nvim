@@ -61,13 +61,19 @@ function Path.join(...)
     return table.concat({ ... }, Path.separator)
 end
 
----@param self parcel.Path
----@param part string | parcel.Path
+---@param path string | parcel.Path
 ---@return parcel.Path
-function Path.__div(self, part)
-    table.insert(self._parts, part)
+function Path:add(path)
+    table.insert(self._parts, path)
 
     return self
+end
+
+---@param self parcel.Path
+---@param path string | parcel.Path
+---@return parcel.Path
+function Path.__div(self, path)
+    return self:add(path)
 end
 
 ---@return string
@@ -76,8 +82,36 @@ function Path:__tostring()
 end
 
 ---@return string
+function Path:tostring()
+    return self:absolute()
+end
+
+---@return string
+function Path:dirname()
+    return Path.join(unpack(vim.list_slice(self._parts, 1, #self._parts - 1)))
+end
+
+---@return string
+function Path:basename()
+    return self._parts[#self._parts]
+end
+
+---@return parcel.Path?
+function Path:parent()
+    if #self._parts == 1 then
+        return nil
+    end
+
+    return Path.new(unpack(vim.list_slice(self._parts, 1, #self._parts - 1)))
+end
+
+---@return string
 function Path:absolute()
-    local norm_path = #self._parts > 0 and vim.fs.normalize(Path.join(unpack(self._parts))) or ""
+    if #self._parts == 0 then
+        return ""
+    end
+
+    local norm_path = vim.fs.normalize(Path.join(unpack(self._parts)))
 
     return vim.fs.abspath(norm_path .. table.concat(vim.tbl_map(ensure_dot_extension, self._extensions), ""))
 end
