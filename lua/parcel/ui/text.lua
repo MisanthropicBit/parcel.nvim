@@ -81,7 +81,8 @@ function Text:set_highlight(buffer, row, col)
                 end_col = end_col,
             }
 
-            self._extmark_ids[idx] = vim.api.nvim_buf_set_extmark(buffer, constants.extmark_namespace, row, cur_col, extmark)
+            self._extmark_ids[idx] =
+                vim.api.nvim_buf_set_extmark(buffer, constants.extmark_namespace, row, cur_col, extmark)
         end
 
         cur_col = end_col

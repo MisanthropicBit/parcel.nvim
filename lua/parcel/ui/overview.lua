@@ -2,9 +2,7 @@ local constants = require("parcel.constants")
 local config = require("parcel.config")
 local diagnostics = require("parcel.diagnostics")
 local fs = require("parcel.fs")
-local Grid = require("parcel.ui.grid")
-local Lines = require("parcel.ui.lines")
-local Text = require("parcel.ui.text")
+local ui = require("parcel.ui")
 local notify = require("parcel.notify")
 local sources = require("parcel.sources")
 local state = require("parcel.state")
@@ -53,6 +51,19 @@ local buffer_options = {
     filetype = "parcel-overview",
 }
 
+-- TODO: Move into source
+local function handle_info(parcel, info_type, value)
+    if info_type == "source" then
+        vim.ui.open(value)
+    elseif info_type == "version" or info_type == "revision" then
+        vim.ui.open(("%s/tree/%s"):format(parcel:source_url(), value))
+    elseif info_type == "path" then
+        -- TODO: Open path?
+    elseif info_type == "docs" or info_type == "license" then
+        -- TODO: Open file (how?)
+    end
+end
+
 ---@type parcel.Overview?
 local main_overview = nil
 
@@ -98,7 +109,7 @@ function Overview:open(options)
     end
 
     if not self.lines then
-        self.lines = Lines.new({ buffer = self.buffer })
+        self.lines = ui.Lines.new({ buffer = self.buffer })
     end
 
     self.lines:clear()
@@ -201,6 +212,22 @@ function Overview:set_keymaps()
 
         if result then
             vim.api.nvim_win_set_cursor(_self.win_id, { result.row, 1 })
+        end
+    end)
+
+    self:on_key(mappings.info, function(_self, context)
+        local row_pos = _self.grid:get_row_or_previous(vim.fn.line("."))
+
+        if not row_pos then
+            return
+        end
+
+        local section = self.sections[row_pos.row_id]
+        local cell = section.grid:get_cell_at_pos(vim.fn.line("."), vim.fn.col("."))
+
+        if cell and cell:data() and cell:data().type then
+            vim.print(vim.inspect((cell or {})._data))
+            handle_info(context.parcel,cell._data.type, cell._data.value)
         end
     end)
 
@@ -415,34 +442,45 @@ end
 ---@param parcel parcel.Parcel
 ---@return parcel.ui.CellOptions[]
 function Overview:create_parcel_cells(parcel)
-    local highlights = config.ui.highlights
+    local cell_options = {}
+    local columns = config.ui.columns
     local _icons = config.ui.icons
-    local source_type_icon = _icons.sources.git
-    local version = parcel:version()
-    local pinned = parcel:pinned() and _icons.pinned or ""
 
-    if type(version) == "string" and utils.git.is_sha(version) then
-        version = version:sub(1, 7) .. " " .. _icons.pinned
+    for _, column in ipairs(columns) do
+        if column == ui.ColumnType.State then
+            table.insert(
+                cell_options,
+                { ui.Text.new({ _icons.state[parcel:state()], hl = hl_by_state[parcel:state()] }) }
+            )
+        elseif column == ui.ColumnType.PackageIcon then
+            table.insert(cell_options, { ui.Text.new({ _icons.parcel, hl = "ParcelIcon" }) })
+        elseif column == ui.ColumnType.Name then
+            table.insert(cell_options, { ui.Text.new({ parcel:name(), hl = "ParcelName" }) })
+        elseif column == ui.ColumnType.VersionRevision then
+            local version = parcel:version()
+            local pinned = parcel:pinned() and _icons.pinned or ""
+
+            if type(version) == "string" and utils.git.is_sha(version) then
+                version = version:sub(1, 7) .. " " .. _icons.pinned
+            end
+
+            -- local label_fg, label_bg = highlight.create_for_label("ParcelLabel")
+
+            local version_label = ui.Text.label({
+                buffer = self.buffer,
+                -- hl = { fg = label_fg, bg = label_bg },
+                hl = {
+                    fg = "#ffffff",
+                    bg = "#1398ab",
+                },
+                text = version and utils.version.format(version) or "No version",
+            })
+
+            table.insert(cell_options, { version_label })
+        end
     end
 
-    -- local label_fg, label_bg = highlight.create_for_label("ParcelLabel")
-
-    local version_label = Text.label({
-        buffer = self.buffer,
-        -- hl = { fg = label_fg, bg = label_bg },
-        hl = {
-            fg = "#ffffff",
-            bg = "#1398ab",
-        },
-        text = version and utils.version.format(version) or "No version",
-    })
-
-    return {
-        { Text.new({ _icons.state[parcel:state()], hl = hl_by_state[parcel:state()] }) },
-        { Text.new({ _icons.parcel, hl = "ParcelIcon" }) },
-        { Text.new({ parcel:name(), hl = "ParcelName" }) },
-        { version_label },
-    }
+    return cell_options
 end
 
 ---@param parcel parcel.Parcel
@@ -493,20 +531,20 @@ end
 ---@param title string
 ---@param value string
 function Overview:create_section(title, value)
-    local title_text = { Text.new({ title, hl = "ParcelSectionKey" }) }
-    local value_text = { value }
+    local data = { type = title:lower(), value = value }
+    local title_text = { ui.Text.new({ title, hl = "ParcelSectionKey" }), data = data }
 
-    return { title_text, value_text }
+    return {  title_text, { value, data = data } }
 end
 
 ---@param parcel parcel.Parcel
----@return parcel.ui.Lines
+---@return parcel.ui.Lines, parcel.ui.Grid
 function Overview:add_subsection(parcel, offset)
     -- TODO: Let the source (only git for now) render the subsection
     local _icons = config.ui.icons
     -- local section_bullet = _icons.bullet
 
-    local section = Lines.new({
+    local section = ui.Lines.new({
         buffer = self.buffer,
         row = offset,
         col = 2,
@@ -514,8 +552,8 @@ function Overview:add_subsection(parcel, offset)
 
     local parcel_state = parcel:state()
     local path = parcel:path()
-    local grid = Grid.new({ buffer = self.buffer })
-    local source_url = _icons.sources[parcel:source()] .. " " .. parcel:source_url()
+    local grid = ui.Grid.new({ buffer = self.buffer })
+    local source_url = parcel:source_url() -- _icons.sources[parcel:source()] .. " " .. parcel:source_url()
 
     -- TODO: Extend so we can add separate highlights for section_bullet and "Name"
     -- TODO: Shorten version if git sha
@@ -536,7 +574,7 @@ function Overview:add_subsection(parcel, offset)
 
     section:newline():add(grid):newline()
 
-    return section
+    return section, grid
 end
 
 ---@private
@@ -571,10 +609,13 @@ function Overview:set_row_ids(parcels)
         self.row_id_to_parcel[row_id] = parcel
         self.parcel_to_row_id[parcel:name()] = row_id
 
+        local lines, grid = self:add_subsection(parcel, self.parcel_row_offset + idx + 1)
+
         if not self.sections[row_id] then
             self.sections[row_id] = {
                 visible = false,
-                lines = self:add_subsection(parcel, self.parcel_row_offset + idx + 1),
+                lines = lines,
+                grid = grid,
             }
         end
     end
@@ -593,9 +634,9 @@ function Overview:render()
 
     -- TODO: Add active/inactive counts
     self.lines
-        :add(Text.new({ ("Packages (%d)"):format(#parcels), hl = "ParcelTitle" }))
+        :add(ui.Text.new({ ("Packages (%d)"):format(#parcels), hl = "ParcelTitle" }))
         :newline()
-        :add(Text.new({ "Press g? for help.", hl = "ParcelHelpText" }))
+        :add(ui.Text.new({ "Press g? for help.", hl = "ParcelHelpText" }))
         :newline()
 
     self.parcel_row_offset = self.lines:size()
@@ -603,7 +644,7 @@ function Overview:render()
     if #parcels == 0 then
         self.lines:add("No packages installed")
     else
-        self.grid = Grid.new({
+        self.grid = ui.Grid.new({
             buffer = self.buffer,
             row = self.parcel_row_offset,
         })

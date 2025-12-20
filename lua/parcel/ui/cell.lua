@@ -5,6 +5,8 @@ local utils = require("parcel.utils")
 
 ---@alias parcel.ui.CellAlignment "left" | "center" | "right"
 
+---@alias parcel.ui.CellData table<string, unknown>
+
 ---@class parcel.ui.Cell
 ---@field _value parcel.ui.InlineElement
 ---@field _align parcel.ui.CellAlignment?
@@ -13,6 +15,7 @@ local utils = require("parcel.utils")
 ---@field _size integer
 ---@field _byte_size integer
 ---@field _extmark_id integer?
+---@field _data parcel.ui.CellData?
 local Cell = {
     _align = "left",
     _lpad = 1,
@@ -29,6 +32,7 @@ Cell.__index = Cell
 ---@field align parcel.ui.CellAlignment?
 ---@field lpad integer?
 ---@field rpad integer?
+---@field data parcel.ui.CellData?
 
 ---@param options parcel.ui.CellOptions
 ---@return parcel.ui.Cell
@@ -37,7 +41,16 @@ function Cell.new(options)
     local cell = setmetatable(utils.privatise_options(options), Cell)
 
     if value == nil or type(value) == "string" then
-        cell:set_value(Text.new(value or ""))
+        ---@type parcel.ui.TextOptions
+        local text_options = value or ""
+
+        if options.data then
+            -- If there is custom data but no highlight, force an extmark so we
+            -- can find the cell if the cursor is on it
+            text_options = { value or "", hl = { fg = "NONE" } }
+        end
+
+        cell:set_value(Text.new(text_options))
     else
         cell:set_value(value)
     end
@@ -99,6 +112,11 @@ end
 ---@return parcel.ui.CellId
 function Cell:set_highlight(buffer, row, col)
     return self._value:set_highlight(buffer, row, col + 1)
+end
+
+---@return parcel.ui.CellData?
+function Cell:data()
+    return self._data
 end
 
 return Cell
