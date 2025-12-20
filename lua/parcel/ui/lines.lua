@@ -84,6 +84,12 @@ end
 ---@param pos { [1]: integer, [2]: integer }?
 ---@param entire_buffer boolean?
 function Lines:render(pos, entire_buffer)
+    local old_modifiable = vim.bo[self._buffer].modifiable
+
+    if old_modifiable == false then
+        vim.bo[self._buffer].modifiable = true
+    end
+
     -- TODO: Could we instead create two extmarks to keep track of the position
     -- of the lines?
     local lines = {}
@@ -118,6 +124,8 @@ function Lines:render(pos, entire_buffer)
 
     -- 3. Set highlights
     self:render_highlights(render_row, render_col)
+
+    vim.bo[self._buffer].modifiable = old_modifiable
 end
 
 ---@private
@@ -139,6 +147,12 @@ end
 ---@param pos { [1]: integer, [2]: integer }?
 function Lines:clear(pos)
     if self._line_count > 0 then
+        local old_modifiable = vim.bo[self._buffer].modifiable
+
+        if old_modifiable == false then
+            vim.bo[self._buffer].modifiable = true
+        end
+
         local render_row = self._row
         local render_col = self._col
 
@@ -148,6 +162,8 @@ function Lines:clear(pos)
 
         vim.api.nvim_buf_set_lines(self._buffer, render_row, render_row + self._line_count, true, {})
         self._line_count = 0
+
+        vim.bo[self._buffer].modifiable = old_modifiable
     end
 end
 

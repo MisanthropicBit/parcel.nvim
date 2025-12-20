@@ -47,7 +47,7 @@ local buffer_options = {
     buftype = "nofile",
     bufhidden = "wipe",
     buflisted = false,
-    -- modifiable = false,
+    modifiable = false,
     filetype = "parcel-overview",
 }
 
