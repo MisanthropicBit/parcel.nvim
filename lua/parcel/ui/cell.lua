@@ -15,8 +15,8 @@ local utils = require("parcel.utils")
 ---@field _extmark_id integer?
 local Cell = {
     _align = "left",
-    _lpad = 0,
-    _rpad = 0,
+    _lpad = 1,
+    _rpad = 1,
     _size = 0,
     _byte_size = 0,
     _extmark_id = nil,
@@ -81,8 +81,8 @@ function Cell:render(max_width)
     end
 
     -- Apply left and right padding
-    table.insert(result, 1, (" "):rep(1))
-    table.insert(result, (" "):rep(1))
+    table.insert(result, 1, (" "):rep(self._lpad))
+    table.insert(result, (" "):rep(self._rpad))
 
     -- Complete render and set sizes
     local rendered = table.concat(result)
