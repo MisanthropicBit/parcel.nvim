@@ -35,7 +35,17 @@ end
 ---@return uv_process_t|nil
 function process.spawn(command, options)
     local stdout = uv.new_pipe()
+
+    if not stdout then
+        error("Failed to create stdout pipe")
+    end
+
     local stderr = uv.new_pipe()
+
+    if not stderr then
+        error("Failed to create stderr pipe")
+    end
+
     local handle = nil
     local pid = nil
     local _options = options or {}
@@ -49,6 +59,10 @@ function process.spawn(command, options)
 
     if _options.stdin then
         stdin = uv.new_pipe()
+
+        if not stdin then
+            error("Failed to create stdin pipe")
+        end
     end
 
     handle, pid = uv.spawn(command, {
@@ -56,12 +70,15 @@ function process.spawn(command, options)
         args = _options.args,
         cwd = _options.cwd,
     }, function(code, signal)
-        handle:close()
         stdout:close()
         stderr:close()
 
         if stdin then
             stdin:close()
+        end
+
+        if handle then
+            handle:close()
         end
 
         local on_exit = _options.on_exit
@@ -74,7 +91,7 @@ function process.spawn(command, options)
     uv.read_start(stdout, create_on_read_handler(result, "stdout"))
     uv.read_start(stderr, create_on_read_handler(result, "stderr"))
 
-    if _options.stdin then
+    if _options.stdin and stdin then
         uv.write(stdin, _options.stdin)
 
         uv.shutdown(stdin, function()
