@@ -251,7 +251,7 @@ describe("task #task", function()
         end, "Attempt to cancel task that was already cancelled")
     end)
 
-    async.it("cancels child tasks", function()
+    async.it("cancels child tasks if the parent is cancelled", function()
         local child_task1, child_task2
 
         local parent_task = Task.run(function()
@@ -273,6 +273,40 @@ describe("task #task", function()
         assert.is_true(parent_task:cancelled())
         assert.is_true(parent_task:started())
         assert.is_false(parent_task:completed())
+        assert.is_false(parent_task:running())
+
+        assert.is_false(child_task1:failed())
+        assert.is_true(child_task1:cancelled())
+        assert.is_true(child_task1:started())
+        assert.is_false(child_task1:completed())
+        assert.is_false(child_task1:running())
+
+        assert.is_false(child_task2:failed())
+        assert.is_true(child_task2:cancelled())
+        assert.is_true(child_task2:started())
+        assert.is_false(child_task2:completed())
+        assert.is_false(child_task2:running())
+    end)
+
+    async.it("cancels child tasks if the parent completes first", function()
+        local child_task1, child_task2
+
+        local parent_task = Task.run(function()
+            child_task1 = Task.run(function()
+                Task.sleep(5000)
+            end)
+
+            child_task2 = Task.run(function()
+                Task.sleep(5000)
+            end)
+        end)
+
+        parent_task:wait()
+
+        assert.is_false(parent_task:failed())
+        assert.is_false(parent_task:cancelled())
+        assert.is_true(parent_task:started())
+        assert.is_true(parent_task:completed())
         assert.is_false(parent_task:running())
 
         assert.is_false(child_task1:failed())

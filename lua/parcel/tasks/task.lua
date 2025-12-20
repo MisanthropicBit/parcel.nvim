@@ -111,6 +111,15 @@ function Task:remove_child_task(task)
     self._child_tasks[task:id()] = nil
 end
 
+---@private
+function Task:cancel_child_tasks()
+    for _, child_task in pairs(self._child_tasks) do
+        if not child_task:cancelled() then
+            child_task:cancel()
+        end
+    end
+end
+
 --- Create and immediately run an asynchronous task
 ---@param func_or_task function | parcel.Task
 ---@param callback parcel.task.Callback?
@@ -461,8 +470,13 @@ function Task:handle_callback(ok, result)
     self._end_time = vim.uv.hrtime()
     _running_tasks[self:coroutine()] = nil
 
+    -- If the task has a parent then remove itself from the parent's table of
+    -- child tasks. If the task has child tasks, cancel them since we are now
+    -- done
     if self:parent() then
         self:parent():remove_child_task(self)
+    elseif vim.tbl_count(self._child_tasks) > 0 then
+        self:cancel_child_tasks()
     end
 
     if self._run_callback or self._wait_callback then
@@ -621,15 +635,11 @@ function Task:cancel()
 
     self._cancelled = true
     self._result = Task.Cancelled
-
-    for _, child_task in pairs(self._child_tasks) do
-        if not child_task:cancelled() then
-            child_task:cancel()
-        end
-    end
+    self:cancel_child_tasks()
 end
 
 -- TODO: Check that we are not waiting inside ourselves
+-- TODO: We should wait for all child tasks here as well
 local wait = Task.wrap(function(self, timeout, callback)
     if not self:started() then
         error("Cannot wait for task that has not been started")
