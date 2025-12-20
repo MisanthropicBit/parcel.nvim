@@ -496,6 +496,53 @@ describe("task #task", function()
             end
         end)
 
+        async.it("respects concurrency limit", function()
+            local max_count = 0
+            local counter = 0
+            local tasks = {}
+
+            for idx = 1, 16 do
+                table.insert(tasks, Task.new(function()
+                    counter = counter + 1
+                    max_count = math.max(max_count, counter)
+                    Task.sleep(20)
+                    counter = counter - 1
+                end))
+            end
+
+            local ok, results = Task.wait_all(tasks, { concurrency = 4 })
+
+            assert.are.same(ok, true)
+            assert.are.same(results, {
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+                { ok = true, result = nil },
+            })
+
+            for idx = 1, #tasks do
+                assert.is_true(tasks[idx]:started())
+                assert.is_false(tasks[idx]:failed())
+                assert.is_false(tasks[idx]:cancelled())
+                assert.is_true(tasks[idx]:completed())
+                assert.is_false(tasks[idx]:running())
+            end
+
+            assert.are.same(max_count, 4)
+        end)
+
         async.it("runs and waits for multiple tasks to finish but times out", function()
             local tasks = vim.iter({ 5000, 5000, 5000 })
                 :map(function(sleep_time)
