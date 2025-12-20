@@ -1,6 +1,6 @@
 <div align="center">
 
-![parcel.nvim logo](https://github.com/user-attachments/assets/ddc70efe-31a0-4958-b6b7-772026b3b3db)
+![parcel.nvim logo](https://github.com/user-attachments/assets/9d703e55-c96f-4526-ab10-9719b8c90791)
 
 # parcel.nvim
 
