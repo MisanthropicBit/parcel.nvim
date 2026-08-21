@@ -52,11 +52,32 @@ end
 function Row:render(render_options)
     local result = {}
 
+    -- TODO: Trim down excess empty columns that just add padding
     for idx, cell in ipairs(self._cells) do
         table.insert(result, cell:render(render_options.max_cell_widths[idx]))
     end
 
     return table.concat(result)
+end
+
+---@param buffer integer
+---@param row integer
+---@param col integer
+---@param level integer?
+---@param limit integer?
+---@return parcel.ui.Data?
+function Row:element_at(buffer, row, col, level, limit)
+    -- if level > limit then
+    --     return
+    -- end
+
+    for _, cell in ipairs(self._cells) do
+        local element = cell:element_at(buffer, row, col)
+
+        if element then
+            return element
+        end
+    end
 end
 
 return Row

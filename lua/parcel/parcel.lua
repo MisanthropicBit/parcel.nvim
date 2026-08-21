@@ -1,4 +1,5 @@
 local utils = require("parcel.utils")
+local sources = require("parcel.sources")
 
 ---@class parcel.ParcelError
 ---@field message string
@@ -90,6 +91,7 @@ end
 
 ---@return boolean
 function Parcel:pinned()
+    -- TODO: Move to source
     return utils.git.is_sha(self:version())
 end
 
@@ -98,8 +100,16 @@ function Parcel:disabled()
     return false
 end
 
+---@return parcel.SourceType
+function Parcel:source_name()
+    return sources.Source.git
+end
+
+---@return parcel.Source
 function Parcel:source()
-    return "git"
+    --- Assume that parcel sources are correctly configured
+    ---@diagnostic disable-next-line: return-type-mismatch
+    return sources.resolve_source(self:source_name())
 end
 
 function Parcel:state()

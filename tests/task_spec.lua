@@ -1,5 +1,53 @@
 local async = require("neotest.async").tests
 local Task = require("parcel.tasks.task")
+local say = require("say")
+
+local function task_formatter(task)
+    if not Task.is_task(task) then
+        return nil
+    end
+
+    local result = {}
+
+    table.insert(result, ("  failed    = %s,"):format(tostring(task:failed())))
+    table.insert(result, ("  cancelled = %s,"):format(tostring(task:cancelled())))
+    table.insert(result, ("  started   = %s,"):format(tostring(task:started())))
+    table.insert(result, ("  completed = %s,"):format(tostring(task:completed())))
+    table.insert(result, ("  running   = %s,"):format(tostring(task:running())))
+
+    return ("Task(\n%s\n)"):format(table.concat(result, "\n"))
+end
+
+assert:add_formatter(task_formatter)
+
+local function assert_completed_task(state, arguments)
+    if #arguments ~= 1 or not Task.is_task(arguments[1]) then
+        return false
+    end
+
+    local task = arguments[1]
+
+    if task:failed() or not task:cancelled() or task:running() then
+        return false
+    end
+
+    if not task:started() or not task:completed() then
+        return false
+    end
+
+    return true
+end
+
+say:set("assertion.is_completed_task.positive", "Expected task to be completed: %s")
+say:set("assertion.is_completed_task.negative", "Expected task to not be completed: %s")
+
+assert:register(
+  "assertion",
+  "is_completed_task",
+  assert_completed_task,
+  "assertion.is_completed_task.positive",
+  "assertion.is_completed_task.negative"
+)
 
 describe("task #task", function()
     it("creates a new task", function()
@@ -25,6 +73,8 @@ describe("task #task", function()
         assert.is_true(task:running())
 
         task:wait()
+
+        -- assert.is_completed_task(task)
 
         assert.is_false(task:failed())
         assert.is_false(task:cancelled())
@@ -408,6 +458,16 @@ describe("task #task", function()
         end, "Cannot call async-only function in non-async context")
     end)
 
+    describe("wrap", function()
+        pending("wraps a callback-style async function", function()
+        end)
+
+        pending("calls a wrapped callback-style async function in a non-async context", function()
+        end)
+    end)
+
+    -- TODO: Add test to ensure that wait_all returns results in the same order
+    -- of the argument tasks
     describe("wait_all", function()
         async.it("runs and waits for multiple tasks to finish", function()
             local tasks = vim.iter({ 400, 500, 250 })
@@ -731,6 +791,37 @@ describe("task #task", function()
                 { ok = true, result = nil },
                 { ok = true, result = nil },
                 { ok = true, result = nil },
+            })
+
+            for idx = 1, #tasks do
+                assert.is_true(tasks[idx]:started())
+                assert.is_false(tasks[idx]:failed())
+                assert.is_false(tasks[idx]:cancelled())
+                assert.is_true(tasks[idx]:completed())
+                assert.is_false(tasks[idx]:running())
+            end
+        end)
+
+        async.it("ensures that results that returned in the same order as tasks", function()
+            local tasks = vim.iter({ 1, 2, 3 })
+                :map(function(task_idx)
+                    return Task.new(function()
+                        local sleep_time = task_idx == 3 and 1000 or 10
+
+                        Task.sleep(sleep_time)
+
+                        return sleep_time
+                    end)
+                end)
+                :totable()
+
+            local ok, results = Task.wait_all(tasks)
+
+            assert.are.same(ok, true)
+            assert.are.same(results, {
+                { ok = true, result = 10 },
+                { ok = true, result = 10 },
+                { ok = true, result = 1000 },
             })
 
             for idx = 1, #tasks do

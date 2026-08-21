@@ -6,7 +6,7 @@ function open_command.run(options)
     -- TODO: Open hidden buffer is there
     if not overview:focus() then
         overview:open({
-            float = options.fargs[2] == "float",
+            float = options.fargs[1] == "float",
             mods = options.mods,
         })
 

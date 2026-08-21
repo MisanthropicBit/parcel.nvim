@@ -1,9 +1,11 @@
+---@alias parcel.LogFunc fun(...: unknown)
+
 ---@class log
----@field trace parcel.LogMethod
----@field debug parcel.LogMethod
----@field info  parcel.LogMethod
----@field warn  parcel.LogMethod
----@field error parcel.LogMethod
+---@field trace parcel.LogFunc
+---@field debug parcel.LogFunc
+---@field info  parcel.LogFunc
+---@field warn  parcel.LogFunc
+---@field error parcel.LogFunc
 local log = {}
 
 log.rotation_strategy = {}
@@ -43,19 +45,17 @@ function log.rotation_strategy.new_file()
     end
 end
 
----@alias parcel.LogMethod fun(...: unknown)
-
 ---@class parcel.LogOptions
 ---@field level  vim.log.levels?
 ---@field path   string?
 ---@field rotate parcel.LogRotationStrategy?
 
 ---@class parcel.Logger
----@field trace parcel.LogMethod
----@field debug parcel.LogMethod
----@field info  parcel.LogMethod
----@field warn  parcel.LogMethod
----@field error parcel.LogMethod
+---@field trace parcel.LogFunc
+---@field debug parcel.LogFunc
+---@field info  parcel.LogFunc
+---@field warn  parcel.LogFunc
+---@field error parcel.LogFunc
 ---
 ---@field private _path parcel.Path
 ---@field private _level integer

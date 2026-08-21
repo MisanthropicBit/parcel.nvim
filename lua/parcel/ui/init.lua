@@ -1,14 +1,14 @@
 local lazy_require = require("parcel.utils.lazy_require")
 
----@enum parcel.ui.Column
-local Column = {
+---@enum parcel.ui.ColumnType
+local ColumnType = {
     State = "state",
     PackageIcon = "package_icon",
     Name = "name",
     VersionRevision = "version_revision",
 }
 
----@alias parcel.ui.Element parcel.ui.Grid | parcel.ui.Text
+---@alias parcel.ui.Element parcel.ui.Grid | parcel.ui.Text Different ui elements
 
 ---@alias parcel.ui.InlineElement parcel.ui.Text Elements that can appear on the same line in a parcel.ui.Lines
 
@@ -24,10 +24,12 @@ local Column = {
 
 return {
     Cell = lazy_require.lazy_require("parcel.ui.cell"),
+    ColumnType = ColumnType,
     Grid = lazy_require.lazy_require("parcel.ui.grid"),
     Lines = lazy_require.lazy_require("parcel.ui.lines"),
     Overview = lazy_require.lazy_require("parcel.ui.overview"),
     Row = lazy_require.lazy_require("parcel.ui.row"),
     Section = lazy_require.lazy_require("parcel.ui.section"),
     Text = lazy_require.lazy_require("parcel.ui.text"),
+    float = lazy_require.lazy_require("parcel.ui.float"),
 }

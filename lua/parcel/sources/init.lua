@@ -2,32 +2,14 @@ local sources = {}
 
 local validators = require("parcel.sources.validators")
 
----@class parcel.SourceNoSupport
----@field supported false
----@field reason string
-
----@class parcel.SourceSupported
----@field supported true
----@field reason nil
-
----@alias parcel.SourceSupportResult parcel.SourceSupported | parcel.SourceNoSupport
-
----@class parcel.SourceSupport
----@field general parcel.SourceSupportResult
+---@alias parcel.SectionResult { [1]: string, [2]: string }[]
 
 --- The interface for plugins that retrieve parcels from some source
 ---@class parcel.Source
 ---@field name               fun(): string
----@field supported          async fun(): parcel.SourceSupport
----@field write_section      fun(parcel: parcel.Parcel, section: parcel.ui.Lines)
----@field has_update         async fun(parcel: parcel.Parcel, context: table?)
----@field update             async fun(parcel: parcel.Parcel, context: table?)
-
----@class parcel.SourceConfigKey
----@field name string
----@field expected_types string[]
----@field required boolean?
----@field validator fun(value: any, keys: string[])
+---@field handle_open        async fun(parcel: parcel.Parcel, value: unknown, open_type: string): boolean
+---@field write_section      fun(parcel: parcel.Parcel, section: parcel.ui.Lines): parcel.SectionResult
+---@field has_update         async fun(parcel: parcel.Parcel): parcel.Parcel?
 
 ---@enum parcel.SourceType
 sources.Source = {
@@ -44,26 +26,17 @@ function sources.get_source(source_type)
     return require("parcel.sources." .. source_type)
 end
 
----@async
 ---@param source_type string | parcel.SourceType
----@return boolean
----@return parcel.Source | string?
+---@return parcel.Source?
 function sources.resolve_source(source_type)
     local ok, source = pcall(sources.get_source, source_type)
 
     if not ok then
-        return ok, source
+        return
     end
 
     ---@cast source parcel.Source
-
-    local supported, reason = source.supported()
-
-    if not supported then
-        return false, reason
-    end
-
-    return true, source
+    return source
 end
 
 return sources

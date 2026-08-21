@@ -1,8 +1,11 @@
 local highlight = require("parcel.highlight")
 
+---@alias parcel.ui.Data table<string, unknown> Arbitrary data associated with an extmark
+
 ---@class parcel.ui.TextElement
----@field [1] string
----@field hl  parcel.ui.Highlight?
+---@field [1]  string
+---@field hl   parcel.ui.Highlight?
+---@field data parcel.ui.Data?
 
 ---@alias parcel.ui.TextOptions string | parcel.ui.TextElement | parcel.ui.TextElement[]
 
@@ -13,10 +16,11 @@ local highlight = require("parcel.highlight")
 ---@field spacing   integer?
 ---@field hl        parcel.ui.Highlight
 
----@class parcel.ui.Text
+---@class parcel.ui.Text: parcel.ui.BaseElement
 ---@field _values      string[]
 ---@field _highlights  parcel.ui.HighlightGroup[]
----@field _extmark_ids integer?[]
+---@field _extmark_ids (integer?)[]
+---@field _data        table<integer, parcel.ui.Data>
 local Text = {}
 
 Text.__index = Text
@@ -33,20 +37,36 @@ function Text.new(options)
     text._values = {}
     text._highlights = {}
     text._extmark_ids = {}
+    text._data = {}
 
-    if type(options) == "string" then
-        table.insert(text._values, options)
-        table.insert(text._highlights, "")
-    elseif options.hl ~= nil then
-        ---@cast options parcel.ui.TextElement
-        table.insert(text._values, options[1])
-        table.insert(text._highlights, highlight.create(options.hl))
+    local elements
+
+    ---@diagnostic disable-next-line: param-type-mismatch
+    if vim.islist(options) then
+        ---@cast options (string | parcel.ui.TextElement)[]
+        elements = vim.tbl_map(function(element)
+            return type(element) == "string" and { element } or element
+        end, options)
     else
-        ---@cast options parcel.ui.TextElement[]
-        for _, value in ipairs(options) do
-            table.insert(text._values, value[1])
-            table.insert(text._highlights, value.hl and highlight.create(value.hl) or "")
+        elements = { options }
+    end
+
+    ---@cast elements (string | parcel.ui.TextElement)[]
+    for idx, value in ipairs(elements) do
+        table.insert(text._values, value[1])
+        text._data[idx] = value.data
+
+        local hl
+
+        if value.hl then
+            hl = highlight.create(value.hl)
+        elseif value.data then
+            -- If there is custom data but no highlight, force an extmark so we
+            -- can find the cell if the cursor is on it
+            hl = highlight.create({ fg = "NONE" })
         end
+
+        table.insert(text._highlights, hl or "")
     end
 
     return setmetatable(text, Text)
@@ -89,6 +109,55 @@ function Text:set_highlight(buffer, row, col)
     end
 
     return row + 1
+end
+
+---@return table<integer, parcel.ui.Data>
+function Text:data()
+    return self._data
+end
+
+---@param buffer integer
+---@param row integer
+---@param col integer
+---@return parcel.ui.Data?
+function Text:element_at(buffer, row, col)
+    for idx, extmark_id in ipairs(self._extmark_ids) do
+        local result = vim.api.nvim_buf_get_extmark_by_id(buffer, constants.extmark_namespace, extmark_id, {
+            details = true,
+        })
+
+        if result then
+            local erow, ecol, details = result[1], result[2], result[3]
+            ---@cast details -nil
+
+            if #self._values > 1 then
+                vim.print(vim.inspect(self._values))
+                vim.print(vim.inspect({ buffer, row, col }))
+                vim.print(vim.inspect({ row, erow, details.end_row, col, ecol, details.end_col }))
+            end
+
+            if row >= erow and row <= details.end_row and col >= ecol and col <= details.end_col then
+                return self._data[idx]
+            end
+        end
+    end
+end
+
+--- Create a text element from a list of delimited parts
+---@param parts (string | parcel.ui.TextElement)[]
+---@param delimiter string | parcel.ui.TextElement
+function Text.delimited(parts, delimiter)
+    local delimited = {}
+
+    for idx = 1, #parts do
+        table.insert(delimited, parts[idx])
+
+        if idx < #parts then
+            table.insert(delimited, delimiter)
+        end
+    end
+
+    return Text.new(delimited)
 end
 
 -- Label inspired by Snacks.gh badges

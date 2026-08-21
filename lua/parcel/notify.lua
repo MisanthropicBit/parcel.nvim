@@ -1,3 +1,10 @@
+---@alias parcel.NotifyFunc fun(message: string, ...: any)
+
+---@class parcel.notify
+---@field debug parcel.NotifyFunc
+---@field info  parcel.NotifyFunc
+---@field warn  parcel.NotifyFunc
+---@field error parcel.NotifyFunc
 local notify = {}
 
 local log = require("parcel.log")
@@ -19,10 +26,10 @@ local function _notify(message, level, ...)
     -- functions that are not safe to call in async code
     if vim.in_fast_event() then
         vim.schedule(function()
-            vim.notify(message:format(unpack(args)), level)
+            vim.notify(message:format(unpack(args)), level, { title = "parcel.nvim" })
         end)
     else
-        vim.notify(message:format(unpack(args)), level)
+        vim.notify(message:format(unpack(args)), level, { title = "parcel.nvim" })
     end
 end
 

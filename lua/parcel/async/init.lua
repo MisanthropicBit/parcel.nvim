@@ -12,5 +12,6 @@ return {
     opt_local = async_proxy.create("opt_local"),
     opt_global = async_proxy.create("opt_global"),
     process = async_lazy_require("process"),
+    ui = async_proxy.create("ui"),
     utils = async_lazy_require("utils"),
 }

@@ -1,11 +1,14 @@
 local config = require("parcel.config")
 local highlight = require("parcel.highlight")
 local Text = require("parcel.ui.text")
-local utils = require("parcel.utils")
 
 ---@alias parcel.ui.CellAlignment "left" | "center" | "right"
 
----@alias parcel.ui.CellData table<string, unknown>
+---@class parcel.ui.CellOptions
+---@field [1] (string?) | parcel.ui.InlineElement
+---@field align parcel.ui.CellAlignment?
+---@field lpad integer?
+---@field rpad integer?
 
 ---@class parcel.ui.Cell
 ---@field _value parcel.ui.InlineElement
@@ -15,7 +18,6 @@ local utils = require("parcel.utils")
 ---@field _size integer
 ---@field _byte_size integer
 ---@field _extmark_id integer?
----@field _data parcel.ui.CellData?
 local Cell = {
     _align = "left",
     _lpad = 1,
@@ -27,30 +29,19 @@ local Cell = {
 
 Cell.__index = Cell
 
----@class parcel.ui.CellOptions
----@field [1] (string?) | parcel.ui.InlineElement
----@field align parcel.ui.CellAlignment?
----@field lpad integer?
----@field rpad integer?
----@field data parcel.ui.CellData?
-
 ---@param options parcel.ui.CellOptions
 ---@return parcel.ui.Cell
 function Cell.new(options)
     local value = options[1]
-    local cell = setmetatable(utils.privatise_options(options), Cell)
+
+    local cell = setmetatable({
+        _align = options.align,
+        _lpad = options.lpad,
+        _rpad = options.rpad,
+    }, Cell)
 
     if value == nil or type(value) == "string" then
-        ---@type parcel.ui.TextOptions
-        local text_options = value or ""
-
-        if options.data then
-            -- If there is custom data but no highlight, force an extmark so we
-            -- can find the cell if the cursor is on it
-            text_options = { value or "", hl = { fg = "NONE" } }
-        end
-
-        cell:set_value(Text.new(text_options))
+        cell:set_value(Text.new(value or ""))
     else
         cell:set_value(value)
     end
@@ -114,9 +105,12 @@ function Cell:set_highlight(buffer, row, col)
     return self._value:set_highlight(buffer, row, col + 1)
 end
 
----@return parcel.ui.CellData?
-function Cell:data()
-    return self._data
+---@param buffer integer
+---@param row integer
+---@param col integer
+---@return parcel.ui.Data?
+function Cell:element_at(buffer, row, col)
+    return self._value:element_at(buffer, row, col)
 end
 
 return Cell

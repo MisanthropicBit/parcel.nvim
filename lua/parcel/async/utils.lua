@@ -37,4 +37,7 @@ function async_utils.throttle(ms, func)
     end
 end
 
+function async_utils.pcall()
+end
+
 return async_utils

@@ -18,7 +18,7 @@ local Task = require("parcel.tasks.task")
 local function execute_git(subcommand, args, path, callback)
     table.insert(args, 1, subcommand)
 
-    log.error("Running git command with arguments", args, "at path", path)
+    log.debug("Running git command with arguments", args, "at path", path)
 
     process.spawn(
         "git",
@@ -45,6 +45,10 @@ end, 3)
 
 git.fetch = Task.wrap(function(dir, options, callback)
     execute_git("fetch", options.args or {}, dir, callback)
+end, 3)
+
+git.log = Task.wrap(function(dir, options, callback)
+    execute_git("log",  options.args or {}, dir, callback)
 end, 3)
 
 return git

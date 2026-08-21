@@ -5,20 +5,22 @@ local parcel_loaded = false
 ---@class parcel.SetupConfiguration
 ---@field options parcel.Config
 
----@param configuration parcel.SetupConfiguration
+---@param configuration parcel.Config
 function parcel.setup(configuration)
     if parcel_loaded then
         return
     end
 
-    -- TODO: Replace with validation from config module
-    -- vim.validate({ configuration = { configuration, "table" } })
+    require("parcel.config").setup(configuration)
 
-    -- require("parcel.config").setup(configuration.options)
+    -- TODO: Move elsewhere, no need to load already
     require("parcel.diagnostics").setup()
     require("parcel.state").setup()
+    require("parcel.highlight").setup()
 
     parcel_loaded = true
+
+    -- require("parcel.log").info("parcel.nvim initialized")
 end
 
 return parcel

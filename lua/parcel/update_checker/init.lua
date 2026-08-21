@@ -5,8 +5,16 @@ local Task = require("parcel.tasks.task")
 local git = require("parcel.async.git")
 local log = require("parcel.log")
 local state = require("parcel.state")
+local Path = require("parcel.path")
+local notify = require("parcel.notify")
+
+-- FIX: Fix debug.getinfo level
+-- FIX: Context name not separated
+-- TODO: Move into git source
 
 -- local logger = log.with_context("update_checker")
+--
+-- logger.warn("This is a test")
 
 ---@alias parcel.UpdateCheckListener fun(parcels: parcel.Parcel[])
 
@@ -37,6 +45,17 @@ local function notify_listeners(parcels)
     end
 end
 
+-- local function get_last_check_time()
+--     local path = Path.join(vim.fn.stdpath("data"), "parcel-last-update-check")
+--     local fd = vim.uv.fs_open(path, "r", 0)
+--
+--     if not fd then
+--         return last_check_time
+--     end
+--
+--     -- vim.uv.fs_read(fd, )
+-- end
+
 ---@param _last_check_time number?
 ---@return boolean
 local function should_check(_last_check_time)
@@ -55,7 +74,9 @@ end
 ---@param parcel parcel.Parcel
 local function check_updates(parcel)
     return Task.run(function()
+        -- TODO: Make git async functions throw so we don't need to handle every call
         local name = parcel:name()
+        vim.print(("Task running for %s"):format(name))
         local path = parcel:path()
         local fetch_ok, fetch_error = git.fetch(path, { args = default_fetch_args })
 
@@ -119,6 +140,8 @@ function update_checker.check(parcels, options)
             table.insert(check_tasks, check_updates(parcel))
         end
 
+        vim.print(vim.inspect(vim.tbl_map(function(p) return p:name() end, parcels)))
+
         local concurrency = config.update_checker.concurrency or config.concurrency
 
         local ok, results = Task.wait_all(check_tasks, {
@@ -126,14 +149,16 @@ function update_checker.check(parcels, options)
             timeout = config.update_checker.timeout_ms,
         })
 
+        vim.print(ok)
+        vim.print(vim.inspect(vim.tbl_map(function(p) return p.result and p.result:name() or nil end, results)))
+
         if not ok then
             if results == Task.Timeout then
-                log.warn("update_checker: Timed out when checking one or more parcels", results)
-            else
-                log.error("update_checker: Failed to check one or more parcels", results)
+                notify.log.warn("update_checker: Timed out when checking parcel updates", results)
+                return
             end
 
-            return
+            error(vim.inspect(results))
         end
 
         ---@type parcel.Parcel[]
@@ -142,6 +167,8 @@ function update_checker.check(parcels, options)
         end):map(function(result)
             return result.result
         end):totable()
+
+        vim.print(vim.inspect(vim.tbl_map(function(p) return p:name() end, updateable_parcels)))
 
         if #updateable_parcels > 0 then
             notify_listeners(updateable_parcels)

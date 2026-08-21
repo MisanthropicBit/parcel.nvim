@@ -11,6 +11,8 @@ local Path = require("parcel.path")
 local update_checker = require("parcel.update_checker")
 local utils = require("parcel.utils")
 local highlight = require("parcel.highlight")
+local Task = require("parcel.tasks.task")
+local git = require("parcel.async.git")
 
 -- TODO: Lookup column indices via column names
 
@@ -46,22 +48,37 @@ local window_options = {
 local buffer_options = {
     buftype = "nofile",
     bufhidden = "wipe",
-    buflisted = false,
+    buflisted = true,
     modifiable = false,
     filetype = "parcel-overview",
 }
 
--- TODO: Move into source
-local function handle_info(parcel, info_type, value)
-    if info_type == "source" then
-        vim.ui.open(value)
-    elseif info_type == "version" or info_type == "revision" then
-        vim.ui.open(("%s/tree/%s"):format(parcel:source_url(), value))
-    elseif info_type == "path" then
-        -- TODO: Open path?
-    elseif info_type == "docs" or info_type == "license" then
-        -- TODO: Open file (how?)
+---@return integer?, integer?
+local function find_existing_overview()
+    local overview_win_id
+    local overview_buffer
+
+    for _, win_id in ipairs(vim.api.nvim_list_wins()) do
+        if vim.api.nvim_win_is_valid(win_id) then
+            local buffer = vim.api.nvim_win_get_buf(win_id)
+
+            if vim.bo[buffer].filetype == "parcel-overview" then
+                overview_win_id = win_id
+                overview_buffer = buffer
+                break
+            end
+        end
     end
+
+    if not overview_buffer then
+        for _, buffer in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.api.nvim_buf_is_loaded(buffer) and vim.bo[buffer].filetype == "parcel-overview" then
+                overview_buffer = buffer
+            end
+        end
+    end
+
+    return overview_win_id, overview_buffer
 end
 
 ---@type parcel.Overview?
@@ -70,6 +87,7 @@ local main_overview = nil
 ---@class parcel.Section
 ---@field visible boolean
 ---@field lines parcel.ui.Lines
+---@field grid parcel.ui.Grid
 
 ---@class parcel.OverviewOptions
 ---@field float boolean? open the overview in a float if true
@@ -98,14 +116,27 @@ end
 ---@param options parcel.OverviewOptions?
 function Overview:open(options)
     local _options = options or {}
+    local buffer
 
-    if _options.float then
-        self.buffer = vim.api.nvim_create_buf(false, false)
-        self.win_id = vim.api.nvim_open_win(self.buffer, true, {})
+    if self:is_valid() then
+        -- 1. If the current overview is still valid, focus it
+        self:focus()
+    elseif self:hidden() then
+        -- 2. Window is not valid but buffer is valid (hidden) so open that buffer in a new window
+        self:open_window(_options, self.buffer, nil)
     else
-        vim.cmd((_options.mods or "") .. " new")
-        self.buffer = vim.api.nvim_win_get_buf(0)
-        self.win_id = vim.api.nvim_get_current_win()
+        -- 3. Try to find an existing overview
+        local existing_win_id, existing_buffer = find_existing_overview()
+
+        if existing_win_id and existing_buffer then
+            -- If found, focus that
+            self.win_id = existing_win_id
+            self.buffer = existing_buffer
+
+            self:focus()
+        else
+            self:open_window(_options, nil, nil)
+        end
     end
 
     if not self.lines then
@@ -163,6 +194,29 @@ function Overview:open(options)
     self:set_keymaps()
 end
 
+function Overview:open_window(options, buffer, win_id)
+    if buffer then
+        self.buffer = buffer
+    else
+        self.buffer = vim.api.nvim_create_buf(false, true)
+    end
+
+    if options.float then
+        self.win_id = ui.float.open_centered(self.buffer)
+    else
+        vim.cmd((options.mods or "") .. " new")
+
+        self.buffer = vim.api.nvim_win_get_buf(0)
+        self.win_id = vim.api.nvim_get_current_win()
+    end
+
+    -- If we did not have a buffer, it is now created so set the current
+    -- window's buffer to it
+    if not buffer then
+        vim.api.nvim_set_current_buf(self.buffer)
+    end
+end
+
 ---@private
 function Overview:set_keymaps()
     local mappings = config.ui.mappings
@@ -215,20 +269,52 @@ function Overview:set_keymaps()
         end
     end)
 
-    self:on_key(mappings.info, function(_self, context)
-        local row_pos = _self.grid:get_row_or_previous(vim.fn.line("."))
+    self:on_key(mappings.open_split, function(_self, context)
+        _self:open_handler("split", context.parcel)
+    end)
 
-        if not row_pos then
-            return
-        end
+    self:on_key(mappings.open_vertical, function(_self, context)
+        _self:open_handler("vertical split", context.parcel)
+    end)
 
-        local section = self.sections[row_pos.row_id]
-        local cell = section.grid:get_cell_at_pos(vim.fn.line("."), vim.fn.col("."))
+    self:on_key(mappings.open_tab, function(_self, context)
+        _self:open_handler("tabedit", context.parcel)
+    end)
 
-        if cell and cell:data() and cell:data().type then
-            vim.print(vim.inspect((cell or {})._data))
-            handle_info(context.parcel,cell._data.type, cell._data.value)
-        end
+    self:on_key(mappings.open_edit, function(_self, context)
+        _self:open_handler("edit", context.parcel)
+    end)
+
+    self:on_key(mappings.open_float, function(_self, context)
+        _self:open_handler("float", context.parcel)
+    end)
+
+    self:on_key(mappings.log, function(_self, context)
+        -- git log --pretty="format:%h %<|(60,trunc)%s (%cr)" --abbrev-commit --decorate --date=short --color=never --no-show-signature
+
+        Task.run_with_logging(function()
+            local ok, result = git.log(context.parcel:path(), {
+                args = {
+                    '--pretty="format:%h %<|(60,trunc)%s (%cr)"',
+                    "--abbrev-commit",
+                    "--decorate",
+                    "--date=short",
+                    "--color=never",
+                    "--no-show-signature",
+                },
+            })
+
+            if not ok then
+                error(result)
+            end
+
+            -- 1. Open a new buffer with log output
+
+            -- 2. Highlight results (might be better with a regex-based highlight than extmarks)
+
+            -- 3. Set keymaps (gs, gv, gt, etc.). Pressing on any line opens up the commit and
+            -- change. Also add a visual mode where the same is shown for the selected lines
+        end)
     end)
 
     self:on_key(mappings.update, function(_self, context)
@@ -310,6 +396,49 @@ function Overview:set_keymaps()
     end)
 end
 
+---@param win_cmd "split" | "vertical split" | "tabedit" | "edit" | "float"
+---@param parcel parcel.Parcel
+function Overview:open_handler(win_cmd, parcel)
+    local row_pos = self.grid:get_row_or_previous(vim.fn.line("."))
+
+    if not row_pos then
+        return
+    end
+
+    local section = self.sections[row_pos.row_id]
+    local data = section.grid:element_at(self.buffer,vim.fn.line(".") - 1, vim.fn.col(".") - 1)
+
+    if not data or not data.type or not data.value then
+        notify.warn("Found no element to open at cursor")
+        return
+    end
+
+    local _type, value = data.type, data.value
+    vim.print(vim.inspect({ _type, value }))
+
+    if parcel:source().handle_open(parcel, value, _type) then
+        return
+    end
+
+    -- TODO: Cannot navigate back to overview after "edit"
+
+    if _type == "path" or _type == "docs" or _type == "license" then
+        if win_cmd ~= "float" then
+            vim.cmd(("%s %s"):format(win_cmd, value))
+        end
+
+        -- TODO: Open float
+    elseif _type == "help" then
+        if win_cmd == "edit" then
+            vim.cmd(("help %s | only"):format(vim.fs.basename(value)))
+        else
+            local no_split_win_cmd = win_cmd:gsub("split", ""):gsub("edit", "")
+
+            vim.cmd(("%s help %s"):format(no_split_win_cmd, vim.fs.basename(value)))
+        end
+    end
+end
+
 ---@private
 ---@param context parcel.OnKeyCallbackContext
 ---@return parcel.Parcel[]
@@ -356,11 +485,19 @@ end
 
 ---@return boolean
 function Overview:hidden()
+    if not self.buffer or not self.win_id then
+        return false
+    end
+
     return vim.api.nvim_buf_is_valid(self.buffer) and not vim.api.nvim_win_is_valid(self.win_id)
 end
 
 ---@return boolean
 function Overview:is_valid()
+    if not self.buffer or not self.win_id then
+        return false
+    end
+
     return vim.api.nvim_buf_is_valid(self.buffer) and vim.api.nvim_win_is_valid(self.win_id)
 end
 
@@ -378,13 +515,15 @@ end
 ---@private
 ---@param parcels parcel.Parcel[]
 function Overview:set_update_available_diagnostics(parcels)
-    -- if not self:visible() then
-    --     return
-    -- end
+    if not self:visible() then
+        return
+    end
 
     local parcel_diagnostics = vim.tbl_map(function(parcel)
         local row_id = self.parcel_to_row_id[parcel:name()]
         local row, _ = self.grid:get_row_id_pos(row_id)
+
+        vim.print(vim.inspect({ row_id, row, parcel:name() }))
 
         return diagnostics.create(row_id, {
             col = 0,
@@ -529,12 +668,20 @@ end
 
 ---@private
 ---@param title string
----@param value string
-function Overview:create_section(title, value)
-    local data = { type = title:lower(), value = value }
-    local title_text = { ui.Text.new({ title, hl = "ParcelSectionKey" }), data = data }
+---@param values string[]
+---@param data unknown[]?
+---@return parcel.ui.CellOptions
+function Overview:create_section(title, values, data)
+    local title_text = { ui.Text.new({ title, hl = "ParcelSectionKey", data = data and { type = title:lower(), value = data[1] } or nil }) }
+    local texts = {}
 
-    return {  title_text, { value, data = data } }
+    for idx, value in ipairs(values) do
+        local _data = data and { type = title:lower(), value = data[idx] } or nil
+
+        table.insert(texts, { value, data = _data })
+    end
+
+    return { title_text, { ui.Text.delimited(texts, { " | ", hl = "ParcelSectionKey" }) } }
 end
 
 ---@param parcel parcel.Parcel
@@ -557,20 +704,35 @@ function Overview:add_subsection(parcel, offset)
 
     -- TODO: Extend so we can add separate highlights for section_bullet and "Name"
     -- TODO: Shorten version if git sha
-    grid:add_row(self:create_section("Name", parcel:name()))
-        :add_row(self:create_section("Version", tostring(parcel:version())))
-        :add_row(self:create_section("Revision", parcel:revision()))
-        :add_row(self:create_section("Source", source_url))
-        :add_row(self:create_section("Path", path))
+    grid:add_row(self:create_section("Name", { parcel:name() }))
+        :add_row(self:create_section("Version", { tostring(parcel:version() or "-") }, { tostring(parcel:version() or "-") } ))
+        :add_row(self:create_section("Revision", { parcel:revision() }, { parcel:revision() }))
+        :add_row(self:create_section("Source", { source_url }, { source_url }))
+        :add_row(self:create_section("Path", { path }))
 
-    local doc_path = utils.find_docs(path)
-    local license = utils.find_license(path)
+    local doc_paths = fs.find_docs(path)
+    local help_paths = fs.find_help_files(path)
+    local license_paths = fs.find_licenses(path)
 
-    -- TODO: Add help file
+    local function clean_paths(paths)
+        if #paths == 0 then
+            return { "-" }
+        end
+
+        return vim.tbl_map(vim.fs.basename, paths)
+    end
+
+    local cleaned_doc_paths = clean_paths(doc_paths)
+    local cleaned_help_paths = clean_paths(help_paths)
+    local cleaned_license_paths = clean_paths(license_paths)
+
     -- TODO: Add branch (git source)
     -- TODO: Add commit (git source)
-    grid:add_row(self:create_section("Docs", doc_path or "-"))
-        :add_row(self:create_section("License", (license and license.name) or "-"))
+    grid:add_row(self:create_section("Docs", cleaned_doc_paths, doc_paths))
+        :add_row(self:create_section("Help", cleaned_help_paths, help_paths))
+        :add_row(self:create_section("License", cleaned_license_paths, license_paths))
+
+    -- vim.print(vim.inspect(grid._rows[#grid._rows - 1]))
 
     section:newline():add(grid):newline()
 
@@ -601,10 +763,8 @@ function Overview:set_row_ids(parcels)
         return
     end
 
-    -- After each render, map extmarks for each parcel so we can easily
-    -- find the nearest parcel under the cursor
-    for idx, row_id in ipairs(self.grid:row_ids()) do
-        local parcel = parcels[idx]
+    for idx, parcel in ipairs(parcels) do
+        local row_id = self.grid:row_ids()[idx]
 
         self.row_id_to_parcel[row_id] = parcel
         self.parcel_to_row_id[parcel:name()] = row_id
@@ -619,6 +779,31 @@ function Overview:set_row_ids(parcels)
             }
         end
     end
+
+    vim.print(vim.inspect(self.parcel_to_row_id))
+
+    for _, eid in pairs(self.parcel_to_row_id) do
+        vim.print(vim.inspect({ eid, vim.api.nvim_buf_get_extmark_by_id(self.buffer, constants.extmark_namespace, eid, {}) }))
+    end
+
+    -- After each render, map extmarks for each parcel so we can easily
+    -- find the nearest parcel under the cursor
+    -- for idx, row_id in ipairs(self.grid:row_ids()) do
+    --     local parcel = parcels[idx]
+    --
+    --     self.row_id_to_parcel[row_id] = parcel
+    --     self.parcel_to_row_id[parcel:name()] = row_id
+    --
+    --     local lines, grid = self:add_subsection(parcel, self.parcel_row_offset + idx + 1)
+    --
+    --     if not self.sections[row_id] then
+    --         self.sections[row_id] = {
+    --             visible = false,
+    --             lines = lines,
+    --             grid = grid,
+    --         }
+    --     end
+    -- end
 end
 
 ---@private

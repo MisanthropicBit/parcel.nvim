@@ -7,6 +7,7 @@ local subcommands = {
     version = true,
 }
 
+---@return string[]
 local function complete()
     return vim.tbl_keys(subcommands)
 end

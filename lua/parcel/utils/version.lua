@@ -6,7 +6,11 @@ function _version.format(version)
     if type(version) == "string" then
         return version
     elseif version.major ~= nil then
-
+        ---@cast version vim.Version
+        return tostring(version)
+    else
+        ---@cast version vim.VersionRange
+        return ("%s - %s"):format(version.from, version.to)
     end
 end
 

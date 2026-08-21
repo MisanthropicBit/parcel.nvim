@@ -19,6 +19,7 @@ local tblx = require("parcel.tblx")
 ---@field _rows parcel.ui.Row[]
 ---@field _max_cell_widths integer[]
 ---@field _row_ids parcel.ui.RowId[]
+---@field _extmark_id_to_data table<integer, parcel.ui.Cell>
 local Grid = {}
 
 Grid.__index = Grid
@@ -115,6 +116,59 @@ end
 ---@return vim.api.keyset.get_extmark_item_by_id
 function Grid:get_extmark_by_id(id)
     return vim.api.nvim_buf_get_extmark_by_id(self._buffer, constants.extmark_namespace, id, { details = true })
+end
+
+--- Get the innermost ui element at a position within the grid if any
+---@param buffer integer
+---@param row integer
+---@param col integer
+---@param level integer?
+---@param limit integer?
+---@return parcel.ui.Data?
+function Grid:element_at(buffer, row, col, level, limit)
+    -- TODO: Ensure render called once
+
+    local _level = level or 1
+    local _limit = limit or math.huge
+
+    for _, _row in ipairs(self._rows) do
+        local element = _row:element_at(buffer, row, col, _level, _limit)
+
+        if element then
+            return element
+        end
+    end
+end
+
+---@param lnum integer
+---@param col integer
+---@return parcel.ui.Cell?
+function Grid:get_cell_at_pos(lnum, col)
+    local _row = lnum - 1
+    local _col = col - 1
+
+    local extmarks = vim.api.nvim_buf_get_extmarks(
+        self._buffer,
+        constants.extmark_namespace,
+        { _row, 0 },
+        { _row, vim.fn.col("$") - 1 },
+        {
+            type = "highlight",
+            details = true,
+        }
+    )
+
+    local cell
+
+    for _, extmark in ipairs(extmarks) do
+        local extmark_id, start_col, end_col = extmark[1], extmark[3], extmark[4].end_col
+
+        if col >= start_col and col <= end_col then
+            cell = self._extmark_id_to_data[extmark_id]
+        end
+    end
+
+    return cell
 end
 
 ---@param lnum integer
@@ -270,6 +324,7 @@ end
 ---@return integer
 function Grid:set_highlight(buffer, row, col)
     self._row_ids = {}
+    self._extmark_id_to_data = {}
 
     for row_idx, _row in ipairs(self._rows) do
         local offset = col
@@ -277,6 +332,10 @@ function Grid:set_highlight(buffer, row, col)
         -- TODO: Move this into Row class?
         for cell_idx, cell in _row:iter() do
             cell:set_highlight(self._buffer, row + row_idx - 1, offset)
+
+            -- for _, extmark_id in ipairs(cell._value._extmark_ids) do
+            --     self._extmark_id_to_data[extmark_id] = cell
+            -- end
 
             -- TODO: Just create a extmark we manage ourselves
             if cell_idx == 1 then

@@ -27,6 +27,7 @@ local Parcel = require("parcel.parcel")
 ---@class parcel.GetStateOptions
 ---@field info boolean?
 ---@field exclude_states parcel.State[]?
+---@field sort (fun(parcel1: parcel.Parcel, parcel2: parcel.Parcel): boolean)?
 
 ---@class PackEventData
 ---@field active boolean
@@ -97,6 +98,18 @@ function state.parcels(options)
                 filtered_parcels[name] = parcel
             end
         end
+    end
+
+    if not _options.sort then
+        _options.sort = function(parcel1, parcel2)
+            return parcel1:name() < parcel2:name()
+        end
+    end
+
+    if _options.sort then
+        table.sort(filtered_parcels, function(name1, name2)
+            return _options.sort(filtered_parcels[name1], filtered_parcels[name2])
+        end)
     end
 
     return filtered_parcels

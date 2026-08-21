@@ -9,8 +9,6 @@
 -- into a function that instead uses coroutines to start and resume when the
 -- original callback is invoked.
 
--- TODO: Use a list of callbacks to call
-
 ---@class parcel.task.WaitOptions
 ---@field timeout integer? timeout in milliseconds
 
@@ -54,8 +52,7 @@ end
 ---@field private _id integer
 ---@field private _func function
 ---@field private _coroutine thread?
----@field private _run_callback function?
----@field private _wait_callback function?
+---@field private _callbacks function[]
 ---@field private _start_time number
 ---@field private _end_time number
 ---@field private _failed boolean
@@ -72,345 +69,7 @@ Task.Timeout = "Timeout"
 --- Value returned when a task gets cancelled
 Task.Cancelled = "Cancelled"
 
----@param maybe_task unknown
----@return boolean
-function Task.is_task(maybe_task)
-    return getmetatable(maybe_task) == Task
-end
-
---- Get the currently running task
----@return parcel.Task?
-function Task.current()
-    if is_main_coroutine() then
-        return nil
-    end
-
-    return _running_tasks[coroutine.running()]
-end
-
----@return integer
-function Task:id()
-    return self._id
-end
-
----@private
----@return parcel.Task?
-function Task:parent()
-    return self._parent
-end
-
----@private
----@param task parcel.Task
-function Task:add_child_task(task)
-    self._child_tasks[task:id()] = task
-end
-
----@private
----@param task parcel.Task
-function Task:remove_child_task(task)
-    self._child_tasks[task:id()] = nil
-end
-
----@private
-function Task:cancel_child_tasks()
-    for _, child_task in pairs(self._child_tasks) do
-        if not child_task:cancelled() then
-            child_task:cancel()
-        end
-    end
-end
-
---- Create and immediately run an asynchronous task
----@param func_or_task function | parcel.Task
----@param callback parcel.task.Callback?
----@param ... unknown any extra arguments for the initial invocation of the task
----@return parcel.Task
-function Task.run(func_or_task, callback, ...)
-    local task = func_or_task
-
-    if Task.is_task(func_or_task) then
-        ---@cast func_or_task -function
-        func_or_task:check_state()
-        task = func_or_task
-    else
-        ---@cast func_or_task -parcel.Task
-        task = Task.new(func_or_task)
-    end
-
-    ---@cast task parcel.Task
-    task:set_callback(callback)
-
-    return task:start(...)
-end
-
---- Create and immediately run an asynchronous task that logs if the task fails
---- (so no errors will be thrown)
----@param func_or_task function | parcel.Task
----@param ... unknown any extra arguments for the initial invocation of the task
----@return parcel.Task
-function Task.run_with_logging(func_or_task, ...)
-    return Task.run(func_or_task, function(ok, result)
-        if not ok then
-            require("parcel.log").error(result)
-        end
-    end, ...)
-end
-
--- Wraps a callback-style asynchronous function, returning a function which
--- instead uses coroutines to start and resuming when the original callback is
--- invoked
----@param func function
----@param argc integer argument position of the callback
----@param options { async_only: boolean? }?
----@return function
-function Task.wrap(func, argc, options)
-    return function(...)
-        if is_main_coroutine() then
-            if options and options.async_only then
-                error("Cannot call async-only function in non-async context")
-            end
-
-            -- Allow calling wrapped functions in non-async contexts
-            -- TODO: Return from this as well?
-            func(...)
-        else
-            -- Not in main coroutine, yield back to step function
-            local results = { coroutine.yield(argc, func, ...) }
-
-            return unpack(results)
-        end
-    end
-end
-
--- For wrapped functionsWe first define a local wrapped function and call it
--- from Task.sleep so we can add proper documentation to the public function
-
-local sleep = Task.wrap(function(ms, callback)
-    vim.defer_fn(callback, ms)
-end, 2)
-
----@param ms number the amount of milliseconds to sleep
-function Task.sleep(ms)
-    sleep(ms)
-end
-
----@async
----@param state { timed_out: boolean, completed: boolean, running_tasks: parcel.Task[] }
-local function timeout_task(timeout, num_tasks, state)
-    Task.run(function()
-        Task.sleep(timeout)
-
-        -- Return if we are already done
-        if state.completed == num_tasks then
-            return
-        end
-
-        state.timed_out = true
-
-        for _, running_task in ipairs(state.running_tasks) do
-            running_task:cancel()
-        end
-
-        callback(false, Task.Timeout)
-    end)
-end
-
---- Runs a task with a callback. If the task has already resolved call the
---- callback immediately otherwise start the task and set the callback to be
---- called
----@param task parcel.Task
----@param callback parcel.task.Callback
----@return boolean
-local function run_task_with_callback(task, callback)
-    if task:running() then
-        -- FIX: This overrides the callback if already set
-        task:set_callback(callback)
-        return true
-    elseif task:completed() then
-        callback(true, task:result())
-    elseif task:cancelled() or task:failed() then
-        callback(false, task:result())
-    else
-        Task.run(task, callback)
-        return true
-    end
-
-    return false
-end
-
----@param tasks parcel.Task[]
-local function cancel_tasks(tasks)
-    for _, task in ipairs(tasks) do
-        task:cancel()
-    end
-end
-
---- Run a bunch of tasks and wait for them all to complete
-local wait_all = Task.wrap(function(tasks, options, callback)
-    ---@cast tasks parcel.Task[]
-    ---@cast options parcel.task.WaitAllOptions?
-    ---@cast callback fun(boolean, table)
-
-    if #tasks == 0 then
-        error("Empty task list given to Task.wait_all")
-    end
-
-    local all_ok = true
-    local completed = 0
-    local task_idx = 1
-    local results = {} ---@type parcel.task.WaitAllResult[]
-    local concurrency = math.min(options and options.concurrency or #tasks, 2 * #vim.uv.cpu_info())
-    local timeout = options and options.timeout or nil
-    local timed_out = false
-    local running_tasks = {}
-
-    ---@type fun(idx: integer): fun(ok: boolean, result: any)
-    local task_callback
-
-    ---@param idx integer
-    local function run_next_task(idx)
-        if idx > #tasks then
-            return
-        end
-
-        local task = tasks[task_idx]
-        task_idx = task_idx + 1
-
-        if timed_out then
-            return
-        end
-
-        if run_task_with_callback(task, task_callback(idx)) then
-            table.insert(running_tasks, task)
-        end
-    end
-
-    task_callback = function(idx)
-        return function(ok, result)
-            if timed_out then
-                return
-            end
-
-            completed = completed + 1
-            results[idx] = { ok = ok, result = result }
-
-            if not ok then
-                all_ok = false
-            end
-
-            if completed == #tasks then
-                -- Finished all tasks, call callback with the results
-                callback(all_ok, results)
-            else
-                -- There are still tasks to run
-                run_next_task(task_idx)
-            end
-        end
-    end
-
-    -- Start the timeout first since it will immediately wait whereas user tasks
-    -- may not
-    if timeout and #tasks > 0 then
-        Task.run(function()
-            Task.sleep(timeout)
-
-            -- Return if we are already done
-            if completed == #tasks then
-                return
-            end
-
-            timed_out = true
-            cancel_tasks(running_tasks)
-            callback(false, Task.Timeout)
-        end)
-    end
-
-    -- Start all tasks if #tasks < concurrency or as many tasks as we have
-    -- concurrency if #tasks > concurrency
-    local min_num_tasks = math.min(#tasks, concurrency)
-
-    -- Initially start 'concurrency' number of tasks
-    while task_idx <= min_num_tasks do
-        run_next_task(task_idx)
-    end
-end, 3, { async_only = true })
-
---- Run tasks waiting for all the finish successfully or not
----@param tasks (function | parcel.Task)[]
----@param options parcel.task.WaitAllOptions?
----@return boolean # whether execution succeeded or not (e.g. false if timed out)
----@return parcel.task.WaitAllResult[] # result of execution
-function Task.wait_all(tasks, options)
-    return wait_all(tasks, options)
-end
-
----@param tasks parcel.Task[]
----@param options parcel.task.FirstOptions?
-local first = Task.wrap(function(tasks, options, callback)
-    local completed = false
-    local timed_out = false
-    local timeout = options and options.timeout or nil
-    local running_tasks = {}
-
-    -- Start the timeout first since it will immediately wait whereas user tasks
-    -- may not
-    if timeout and #tasks > 0 then
-        Task.run(function()
-            Task.sleep(timeout)
-
-            if completed then
-                return
-            end
-
-            timed_out = true
-            cancel_tasks(running_tasks)
-            callback(false, Task.Timeout)
-        end)
-    end
-
-    local function task_callback(idx)
-        return function(ok, ...)
-            if timed_out or completed then
-                return
-            end
-
-            completed = true
-
-            -- Cancel other running tasks
-            for task_idx, running_task in ipairs(running_tasks) do
-                if task_idx ~= idx then
-                    running_task:cancel()
-                end
-            end
-
-            callback(true, ...)
-        end
-    end
-
-    for idx, task in ipairs(tasks) do
-        if run_task_with_callback(task, task_callback(idx)) then
-            table.insert(running_tasks, task)
-        end
-    end
-end, 3, { async_only = true })
-
---- Run a bunch of tasks and return the result of the first one to complete
----@param tasks parcel.Task[]
----@param options parcel.task.FirstOptions?
----@return boolean # whether the task succeeded or not
----@return any # task result
-function Task.first(tasks, options)
-    return first(tasks, options)
-end
-
-local wait_scheduler = Task.wrap(vim.schedule, 1)
-
---- Wait for the scheduler
-function Task.wait_scheduler()
-    wait_scheduler()
-end
-
---- Create a new task
+--- Create a new task but do not run it
 ---@param func function
 ---@return parcel.Task
 function Task.new(func)
@@ -420,8 +79,7 @@ function Task.new(func)
         _id = get_next_task_id(),
         _func = func,
         _coroutine = nil,
-        _run_callback = nil,
-        _wait_callback = nil,
+        _callbacks = {},
         _start_time = nil,
         _end_time = nil,
         _failed = false,
@@ -450,13 +108,7 @@ function Task:check_state()
     end
 end
 
---- Set the callback to call when the task finishes
----@package
----@param callback parcel.task.Callback?
-function Task:set_callback(callback)
-    self._run_callback = callback
-end
-
+---@private
 ---@param ok boolean
 ---@param result any
 function Task:handle_callback(ok, result)
@@ -479,13 +131,21 @@ function Task:handle_callback(ok, result)
         self:cancel_child_tasks()
     end
 
-    if self._run_callback or self._wait_callback then
-        if self._run_callback then
-            self._run_callback(ok, self:result())
+    if #self._callbacks > 0 then
+        local errors = {}
+
+        for _, callback in ipairs(self._callbacks) do
+            -- We need to call callbacks in a pcall as one might fail so that
+            -- the others never gets executed.
+            local _ok, err = pcall(callback, ok, self:result())
+
+            if not _ok then
+                table.insert(errors, err)
+            end
         end
 
-        if self._wait_callback then
-            self._wait_callback(ok, self:result())
+        if #errors > 0 then
+            error(table.concat(errors, "\n"))
         end
     else
         if self:failed() then
@@ -493,12 +153,6 @@ function Task:handle_callback(ok, result)
             error(("Task failed without callback: %s"):format(tostring(self._result)))
         end
     end
-end
-
----@private
----@return thread?
-function Task:coroutine()
-    return self._coroutine
 end
 
 --- Start a task
@@ -583,6 +237,138 @@ function Task:start(...)
     return self
 end
 
+--- Run a task or create one if the first argument is a function and immediately run it
+---@param func_or_task function | parcel.Task
+---@param callback parcel.task.Callback?
+---@param ... unknown any extra arguments for the initial invocation of the task
+---@return parcel.Task
+function Task.run(func_or_task, callback, ...)
+    local task = func_or_task
+
+    if Task.is_task(func_or_task) then
+        ---@cast func_or_task -function
+        func_or_task:check_state()
+        task = func_or_task
+    else
+        ---@cast func_or_task -parcel.Task
+        task = Task.new(func_or_task)
+    end
+
+    ---@cast task parcel.Task
+    task:add_callback(callback)
+
+    return task:start(...)
+end
+
+--- Run a task or create one if the first argument is a function and
+--- immediately run it. If the task fails, log the error and rethrow it
+---@param func_or_task function | parcel.Task
+---@param ... unknown any extra arguments for the initial invocation of the task
+---@return parcel.Task
+function Task.run_with_logging(func_or_task, ...)
+    return Task.run(func_or_task, function(ok, result)
+        if not ok then
+            require("parcel.log").error(result)
+            error(result)
+        end
+    end, ...)
+end
+
+-- Wraps a callback-style asynchronous function, returning a function which
+-- instead uses coroutines to start and resuming when the original callback is
+-- invoked
+---@param func function
+---@param argc integer argument position of the callback
+---@param options { async_only: boolean? }?
+---@return function
+function Task.wrap(func, argc, options)
+    return function(...)
+        if is_main_coroutine() then
+            if options and options.async_only then
+                error("Cannot call async-only function in non-async context")
+            end
+
+            -- Allow calling wrapped functions in non-async contexts
+            -- TODO: Return from this as well?
+            func(...)
+        else
+            -- Not in main coroutine, yield back to step function
+            local results = { coroutine.yield(argc, func, ...) }
+
+            -- At this point we are still executing the callback from an async
+            -- function so await the scheduler so we can do things while not
+            -- in a fast event
+            -- NOTE: Avoids infinite recursion
+            -- if options and options.nope ~= true then
+            --     Task.wait_scheduler()
+            -- end
+
+            return unpack(results)
+        end
+    end
+end
+
+--- Set the callback to call when the task finishes
+---@package
+---@param callback parcel.task.Callback?
+function Task:add_callback(callback)
+    table.insert(self._callbacks, callback)
+end
+
+---@param maybe_task unknown
+---@return boolean
+function Task.is_task(maybe_task)
+    return getmetatable(maybe_task) == Task
+end
+
+--- Get the currently running task if any
+---@return parcel.Task?
+function Task.current()
+    if is_main_coroutine() then
+        return nil
+    end
+
+    return _running_tasks[coroutine.running()]
+end
+
+---@return integer
+function Task:id()
+    return self._id
+end
+
+---@private
+---@return parcel.Task?
+function Task:parent()
+    return self._parent
+end
+
+---@private
+---@param task parcel.Task
+function Task:add_child_task(task)
+    self._child_tasks[task:id()] = task
+end
+
+---@private
+---@param task parcel.Task
+function Task:remove_child_task(task)
+    self._child_tasks[task:id()] = nil
+end
+
+---@private
+function Task:cancel_child_tasks()
+    for _, child_task in pairs(self._child_tasks) do
+        if not child_task:cancelled() then
+            child_task:cancel()
+        end
+    end
+end
+
+---@private
+---@return thread?
+function Task:coroutine()
+    return self._coroutine
+end
+
 --- The result regardless of the manner of the task's completion
 ---@return any
 function Task:result()
@@ -638,9 +424,13 @@ function Task:cancel()
     self:cancel_child_tasks()
 end
 
--- TODO: Check that we are not waiting inside ourselves
 -- TODO: We should wait for all child tasks here as well
 local wait = Task.wrap(function(self, timeout, callback)
+    if Task.current() == self then
+        -- TODO: Add test
+        error("Cannot wait for task within itself")
+    end
+
     if not self:started() then
         error("Cannot wait for task that has not been started")
     end
@@ -651,7 +441,7 @@ local wait = Task.wrap(function(self, timeout, callback)
         return
     end
 
-    self._wait_callback = callback
+    self:add_callback(callback)
 
     if timeout then
         Task.run(function()
@@ -682,6 +472,235 @@ function Task:elapsed_ms()
     local end_time = self._end_time or vim.uv.hrtime()
 
     return (end_time - self._start_time) / NANO_TO_MILLISECONDS
+end
+
+-- For wrapped functions we first define a local wrapped function and call it
+-- from Task.sleep so we can add proper documentation to the public function
+
+local sleep = Task.wrap(function(ms, callback)
+    vim.defer_fn(callback, ms)
+end, 2)
+
+---@param ms number the amount of milliseconds to sleep
+function Task.sleep(ms)
+    sleep(ms)
+end
+
+---@async
+---@param state { timed_out: boolean, completed: boolean, running_tasks: parcel.Task[] }
+local function timeout_task(timeout, num_tasks, state)
+    Task.run(function()
+        Task.sleep(timeout)
+
+        -- Return if we are already done
+        if state.completed == num_tasks then
+            return
+        end
+
+        state.timed_out = true
+
+        for _, running_task in ipairs(state.running_tasks) do
+            running_task:cancel()
+        end
+
+        callback(false, Task.Timeout)
+    end)
+end
+
+--- Runs a task with a callback. If the task has already resolved call the
+--- callback immediately otherwise start the task and set the callback to be
+--- called
+---@param task parcel.Task
+---@param callback parcel.task.Callback
+---@return boolean
+local function run_task_with_callback(task, callback)
+    if task:running() then
+        task:add_callback(callback)
+        return true
+    elseif task:completed() then
+        callback(true, task:result())
+    elseif task:cancelled() or task:failed() then
+        callback(false, task:result())
+    else
+        Task.run(task, callback)
+        return true
+    end
+
+    return false
+end
+
+---@param tasks parcel.Task[]
+local function cancel_tasks(tasks)
+    for _, task in ipairs(tasks) do
+        task:cancel()
+    end
+end
+
+--- Run a bunch of tasks and wait for them all to complete
+---@param tasks parcel.Task[]
+---@param options parcel.task.WaitAllOptions?
+---@param callback fun(boolean, table)
+local wait_all = Task.wrap(function(tasks, options, callback)
+    if #tasks == 0 then
+        error("Empty task list given to Task.wait_all")
+    end
+
+    local all_ok = true
+    local completed = 0
+    local task_idx = 1
+    local results = {} ---@type parcel.task.WaitAllResult[]
+    local concurrency = math.min(options and options.concurrency or #tasks, 2 * #vim.uv.cpu_info())
+    local timeout = options and options.timeout or nil
+    local timed_out = false
+    local running_tasks = {}
+
+    ---@type fun(idx: integer): fun(ok: boolean, result: any)
+    local task_callback
+
+    ---@param idx integer
+    local function run_next_task(idx)
+        if task_idx > #tasks then
+            return
+        end
+
+        vim.print(("Got task %d, task_idx is %d"):format(idx, task_idx))
+
+        if timed_out then
+            return
+        end
+
+        local task = tasks[idx]
+
+        if run_task_with_callback(task, task_callback(idx)) then
+            table.insert(running_tasks, task)
+        end
+    end
+
+    task_callback = function(idx)
+        return function(ok, result)
+            if timed_out then
+                return
+            end
+
+            vim.print(("Task %d finished (ok = %s, result nil? %s)"):format(idx, tostring(ok), tostring(result == nil)))
+            completed = completed + 1
+            results[idx] = { ok = ok, result = result }
+
+            if not ok then
+                all_ok = false
+            end
+
+            if completed == #tasks then
+                -- Finished all tasks, call callback with the results
+                callback(all_ok, results)
+            else
+                -- There are still tasks to run
+                task_idx = task_idx + 1
+                run_next_task(task_idx)
+            end
+        end
+    end
+
+    -- Start the timeout first since it will immediately wait whereas user tasks
+    -- may not
+    if timeout and #tasks > 0 then
+        Task.run(function()
+            Task.sleep(timeout)
+
+            -- Return if we are already done
+            if completed == #tasks then
+                return
+            end
+
+            timed_out = true
+            cancel_tasks(running_tasks)
+            callback(false, Task.Timeout)
+        end)
+    end
+
+    -- Start all tasks if #tasks < concurrency or as many tasks as we have
+    -- concurrency if #tasks > concurrency
+    local min_num_tasks = math.min(#tasks, concurrency)
+    task_idx = min_num_tasks
+
+    for idx = 1, min_num_tasks do
+        run_next_task(idx)
+    end
+end, 3, { async_only = true })
+
+--- Run tasks waiting for all the finish successfully or not
+---@param tasks (function | parcel.Task)[]
+---@param options parcel.task.WaitAllOptions?
+---@return boolean # whether execution succeeded or not (e.g. false if timed out)
+---@return parcel.task.WaitAllResult[] # result of execution
+function Task.wait_all(tasks, options)
+    return wait_all(tasks, options)
+end
+
+---@param tasks parcel.Task[]
+---@param options parcel.task.FirstOptions?
+local first = Task.wrap(function(tasks, options, callback)
+    local completed = false
+    local timed_out = false
+    local timeout = options and options.timeout or nil
+    local running_tasks = {}
+
+    -- Start the timeout first since it will immediately wait whereas user tasks
+    -- may not
+    if timeout and #tasks > 0 then
+        Task.run(function()
+            Task.sleep(timeout)
+
+            if completed then
+                return
+            end
+
+            timed_out = true
+            cancel_tasks(running_tasks)
+            callback(false, Task.Timeout)
+        end)
+    end
+
+    local function task_callback(idx)
+        return function(ok, ...)
+            if timed_out or completed then
+                return
+            end
+
+            completed = true
+
+            -- Cancel other running tasks
+            for task_idx, running_task in ipairs(running_tasks) do
+                if task_idx ~= idx then
+                    running_task:cancel()
+                end
+            end
+
+            callback(true, ...)
+        end
+    end
+
+    for idx, task in ipairs(tasks) do
+        if run_task_with_callback(task, task_callback(idx)) then
+            table.insert(running_tasks, task)
+        end
+    end
+end, 3, { async_only = true })
+
+--- Run a bunch of tasks and return the result of the first one to complete
+---@param tasks parcel.Task[]
+---@param options parcel.task.FirstOptions?
+---@return boolean # whether the task succeeded or not
+---@return any # task result
+function Task.first(tasks, options)
+    return first(tasks, options)
+end
+
+local wait_scheduler = Task.wrap(vim.schedule, 1)
+
+--- Wait for the scheduler
+function Task.wait_scheduler()
+    wait_scheduler()
 end
 
 return Task
